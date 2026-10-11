@@ -80,10 +80,16 @@ endif()
 add_executable(unit_tests
     tests/unit_tests.cpp
 )
-target_link_libraries(unit_tests PRIVATE lobcore)
+target_link_libraries(unit_tests PRIVATE lobcore Threads::Threads)
 if(TARGET simdjson)
     target_link_libraries(unit_tests PRIVATE simdjson)
 endif()
+
+# Standalone SPSC 10M producer-consumer stress test
+add_executable(spsc_stress
+    tests/spsc_stress.cpp
+)
+target_link_libraries(spsc_stress PRIVATE lobcore Threads::Threads)
 
 # Main capture executable
 add_executable(binance_capture

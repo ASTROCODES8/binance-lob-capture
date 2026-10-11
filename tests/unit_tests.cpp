@@ -5,7 +5,10 @@
 #include "../src/sync.hpp"
 #include "../src/processor.hpp"
 #include "../src/replay.hpp"
+#include "../src/spsc_ring.hpp"
+#include "../src/shutdown.hpp"
 #include <iostream>
+#include <thread>
 #include <fstream>
 #include <filesystem>
 #include <cassert>
@@ -789,6 +792,94 @@ void run_replay_golden_tests() {
     }
 }
 
+void run_spsc_and_shutdown_tests() {
+    // 128. Basic SPSC ring operations and capacity
+    SpscRingBuffer<int, 8> ring;
+    TEST_CHECK(ring.capacity() == 8, "128: ring capacity matches power of 2");
+    TEST_CHECK(ring.empty(), "129: ring initially empty");
+    TEST_CHECK(ring.size() == 0, "130: ring initial size is 0");
+
+    // 131. Push and peek / pop
+    TEST_CHECK(ring.try_push(42), "131: try_push succeeds");
+    TEST_CHECK(!ring.empty(), "132: ring not empty after push");
+    TEST_CHECK(ring.size() == 1, "133: ring size is 1");
+    const int* p = ring.peek();
+    TEST_CHECK(p != nullptr && *p == 42, "134: peek reads item without removing");
+    ring.pop();
+    TEST_CHECK(ring.empty(), "135: ring empty after pop");
+
+    // 136. Zero-copy prepare_write and commit_write
+    int* w = ring.prepare_write();
+    TEST_CHECK(w != nullptr, "136: prepare_write returns valid slot pointer");
+    *w = 100;
+    ring.commit_write();
+    TEST_CHECK(ring.size() == 1, "137: commit_write publishes slot to consumer");
+    int val = 0;
+    TEST_CHECK(ring.try_pop(val) && val == 100, "138: try_pop retrieves published value");
+
+    // 139. Overflow policy: never silent, counts and sets gap flag
+    SpscRingBuffer<int, 4> small_ring;
+    for (int i = 0; i < 4; ++i) {
+        TEST_CHECK(small_ring.try_push(i), "139: fill small ring to capacity");
+    }
+    TEST_CHECK(small_ring.overflow_count() == 0, "140: zero overflows while space available");
+    TEST_CHECK(!small_ring.check_and_clear_gap(), "141: gap flag not set initially");
+
+    // 5th push must trigger overflow
+    TEST_CHECK(!small_ring.try_push(99), "142: push to full ring fails");
+    TEST_CHECK(small_ring.overflow_count() == 1, "143: overflow counter incremented");
+    TEST_CHECK(small_ring.check_and_clear_gap(), "144: gap flag asserted on overflow");
+    TEST_CHECK(!small_ring.check_and_clear_gap(), "145: gap flag atomically cleared");
+
+    // 146. Shutdown handler state
+    reset_stop();
+    TEST_CHECK(!is_stop_requested(), "146: shutdown flag initially false");
+    request_stop();
+    TEST_CHECK(is_stop_requested(), "147: request_stop sets stop flag to true");
+    reset_stop();
+    TEST_CHECK(!is_stop_requested(), "148: reset_stop restores stop flag to false");
+
+    // 149. Concurrent SPSC producer-consumer thread test
+    struct Msg {
+        uint64_t seq;
+        uint64_t sum;
+    };
+    constexpr size_t THREAD_MSG_COUNT = 100'000;
+    auto concurrent_ring = std::make_unique<SpscRingBuffer<Msg, 1024>>();
+    std::atomic<bool> thread_error{false};
+    std::atomic<size_t> consumed{0};
+
+    std::thread consumer([&]() {
+        uint64_t expected = 1;
+        while (expected <= THREAD_MSG_COUNT) {
+            const Msg* m = concurrent_ring->peek();
+            if (m) {
+                if (m->seq != expected || m->sum != (expected * 3)) {
+                    thread_error.store(true);
+                }
+                concurrent_ring->pop();
+                expected++;
+                consumed.fetch_add(1);
+            }
+        }
+    });
+
+    std::thread producer([&]() {
+        for (uint64_t i = 1; i <= THREAD_MSG_COUNT; ++i) {
+            Msg m{i, i * 3};
+            while (!concurrent_ring->try_push(m)) {
+                // spin
+            }
+        }
+    });
+
+    producer.join();
+    consumer.join();
+
+    TEST_CHECK(!thread_error.load(), "149: concurrent SPSC thread transfer maintained exact ordering and checksum");
+    TEST_CHECK(consumed.load() == THREAD_MSG_COUNT, "150: all concurrent messages consumed");
+}
+
 int main() {
     std::cout << "Running Binance LOB capture unit tests...\n";
 
@@ -802,6 +893,7 @@ int main() {
     run_sync_tests();
     run_processor_fixture_tests();
     run_replay_golden_tests();
+    run_spsc_and_shutdown_tests();
 
     std::cout << "Tests completed. Passed: " << g_tests_passed
               << ", Failed: " << g_tests_failed << "\n";

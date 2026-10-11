@@ -119,7 +119,19 @@ cmake --build build --config Release
 
 ### Running Tests
 ```powershell
+# Run full unit test suite (156 test cases)
 .\build\Release\unit_tests.exe
+
+# Run 10M message lock-free SPSC ring stress test
+.\build\Release\spsc_stress.exe
+```
+
+### ThreadSanitizer Verification (Linux)
+To verify race-freedom under GCC/Clang ThreadSanitizer (TSan):
+```bash
+cmake -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=thread -g"
+cmake --build build-tsan --target spsc_stress
+./build-tsan/spsc_stress
 ```
 
 ---
