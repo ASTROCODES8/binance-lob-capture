@@ -184,7 +184,7 @@ void Processor::process_payload(SymbolContext& ctx,
             return;
         }
 
-        SyncAction action = ctx.sync_sm.on_diff(diff_buf_.U, diff_buf_.u);
+        SyncAction action = ctx.sync_sm.on_diff(diff_buf_.U, diff_buf_.u, diff_buf_.pu);
         if (action == SyncAction::Drop) {
             return;
         }

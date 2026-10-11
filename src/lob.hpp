@@ -33,6 +33,7 @@ struct BookSnapshot {
 struct DiffPayload {
     uint64_t U{0};
     uint64_t u{0};
+    uint64_t pu{0};
     uint64_t E{0};
     std::vector<LevelUpdate> bids;
     std::vector<LevelUpdate> asks;

@@ -41,8 +41,15 @@ SyncAction SymbolSyncStateMachine::on_diff(uint64_t U, uint64_t u, uint64_t pu) 
             return SyncAction::Drop;
         }
 
-        // First applied diff must bridge the snapshot: U <= last_update_id + 1 <= u
-        if (U <= last_update_id_ + 1 && last_update_id_ + 1 <= u) {
+        // First applied diff must bridge the snapshot
+        bool bridge_ok = false;
+        if (venue_ == binance::Venue::Usdm && pu != 0) {
+            bridge_ok = (pu <= last_update_id_ && u >= last_update_id_);
+        } else {
+            bridge_ok = (U <= last_update_id_ + 1 && last_update_id_ + 1 <= u);
+        }
+
+        if (bridge_ok) {
             first_diff_after_snapshot_ = false;
             prev_u_ = u;
             return SyncAction::Apply;

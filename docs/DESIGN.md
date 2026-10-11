@@ -103,7 +103,20 @@ The engine is engineered as a low-latency, lock-free, multi-threaded market data
 | **Memory-Mapped File (`mmap`)** | $< 100\,\text{ns}$ | Page fault driven | Requires fixed file pre-allocation |
 | **Synchronous `write()` per line** | $2,000–10,000\,\text{ns}$ | 1 syscall per row | Instant write, severe CPU stalls |
 
-**Design Choice**: We utilize a custom `BufferedFileWriter` allocating a 1 MB heap buffer. Writing a CSV row consists of appending bytes into contiguous RAM; when the buffer reaches capacity, a single OS write syscall flushes the entire block. On shutdown (`Ctrl+C` or `--duration`), a final flush guarantees zero truncated rows.
+### 2.5 Exchange Venue Semantics: Spot vs. USD-M Futures
+
+| Property | Binance Spot (`--venue spot`) | Binance USD-M Futures (`--venue usdm`) |
+| :--- | :--- | :--- |
+| **Base WebSocket Host** | `data-stream.binance.vision` / `stream.binance.com` | `fstream.binance.com` |
+| **Port** | `9443` | `443` (standard TLS/WSS) |
+| **Stream Path Prefix** | `/stream?streams=` | `/public/stream?streams=` |
+| **Depth5 Fields** | `"lastUpdateId"`, `"bids"`, `"asks"` | `"u"`, `"b"`, `"a"` |
+| **Initial Diff Bridge** | $U \le \text{lastUpdateId} + 1 \le u$ | $\text{pu} \le \text{lastUpdateId} \le u$ |
+| **Continuity Rule** | $U == \text{prev\_u} + 1$ (strictly adjacent) | $\text{pu} == \text{prev\_u}$ (explicit pointer to prior event) |
+
+**Design Choice**: The engine automatically partitions stream paths and sequence validation based on `--venue`:
+- For Spot, strict arithmetic progression ($U == \text{prev\_u} + 1$) guarantees no missing update events.
+- For USD-M Futures, update ID ranges are batched by the exchange, making `pu` (previous update ID) the authoritative indicator of continuity. A mismatch ($\text{pu} \ne \text{prev\_u}$) triggers an immediate gap assertion and book resync.
 
 ---
 

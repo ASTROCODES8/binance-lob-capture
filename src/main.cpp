@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
     std::string symbols_str;
     std::string output_dir = "output";
     std::string replay_path;
-    std::string host = "data-stream.binance.vision";
+    std::string host;
     uint64_t duration_sec = 0;
     bool bench = false;
 
@@ -87,6 +87,9 @@ int main(int argc, char* argv[]) {
     }
 
     binance::Venue venue = binance::string_to_venue(venue_str);
+    if (host.empty()) {
+        host = (venue == binance::Venue::Usdm) ? "fstream.binance.com" : "data-stream.binance.vision";
+    }
 
     std::vector<std::string> symbols;
     if (!symbols_str.empty()) {
@@ -167,7 +170,7 @@ int main(int argc, char* argv[]) {
     lob::NetClientConfig net_config;
     net_config.venue = venue;
     net_config.host = host;
-    net_config.port = "9443";
+    net_config.port = (venue == binance::Venue::Usdm) ? "443" : "9443";
     net_config.symbols = symbols;
     net_config.shard_id = 1;
 

@@ -55,7 +55,7 @@ constexpr size_t MAX_MESSAGE_BYTES = 65536;
 
 std::string NetClient::build_combined_stream_path(
     binance::Venue venue, const std::vector<std::string>& symbols) {
-    std::string path = "/stream?streams=";
+    std::string path = (venue == binance::Venue::Usdm) ? "/public/stream?streams=" : "/stream?streams=";
     for (size_t i = 0; i < symbols.size(); ++i) {
         std::string s_lower = symbols[i];
         for (char& c : s_lower) {
@@ -69,7 +69,6 @@ std::string NetClient::build_combined_stream_path(
         path.append(s_lower);
         path.append("@trade");
     }
-    (void)venue;
     return path;
 }
 

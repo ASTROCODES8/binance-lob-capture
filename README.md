@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ASTROCODES8/binance-lob-capture/actions/workflows/ci.yml/badge.svg)](https://github.com/ASTROCODES8/binance-lob-capture/actions/workflows/ci.yml)
 [![C++17](https://img.shields.io/badge/Language-C%2B%2B17-blue.svg)](https://en.cppreference.com/w/cpp/17)
-[![Tests](https://img.shields.io/badge/Tests-159%20Passed-brightgreen.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/Tests-163%20Passed-brightgreen.svg)](#running-tests)
 [![Sanitizers](https://img.shields.io/badge/Sanitizers-ASan%20%7C%20UBSan%20%7C%20TSan-success.svg)](#threadsanitizer-verification-linux)
 
 High-performance, low-latency C++17 market data capture and deterministic order book maintenance engine for Binance WebSocket streams. Emits an immutable raw market data audit log (**Deliverable A**, 9 columns) and a synchronized top-5 order book snapshot feed (**Deliverable B**, 26 columns) with sub-microsecond processing latency.
@@ -288,7 +288,7 @@ python3 scripts/check_csv_sanity.py --dir ./output
 
 ### Running Tests
 ```bash
-# Run full unit test suite (159 test cases)
+# Run full unit test suite (163 test cases)
 ./build/unit_tests
 
 # Run 10M lock-free SPSC ring buffer stress test

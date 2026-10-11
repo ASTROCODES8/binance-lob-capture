@@ -896,6 +896,30 @@ void run_net_client_tests() {
     std::string path3 = NetClient::build_combined_stream_path(binance::Venue::Spot, {"bnbusdt"});
     TEST_CHECK(path3 == "/stream?streams=bnbusdt@depth@100ms/bnbusdt@depth5@100ms/bnbusdt@trade",
                "153: case normalization produces lowercase stream keys");
+
+    // 154. USD-M venue generates /public/stream?streams= path
+    std::string usdm_path = NetClient::build_combined_stream_path(binance::Venue::Usdm, {"BTCUSDT"});
+    TEST_CHECK(usdm_path == "/public/stream?streams=btcusdt@depth@100ms/btcusdt@depth5@100ms/btcusdt@trade",
+               "154: USD-M futures generates /public/stream path prefix");
+
+    // 155. USD-M parse_diff extracts pu field
+    JsonPayloadParser parser;
+    DiffPayload diff;
+    std::string usdm_json = R"({"e":"depthUpdate","E":1620000000,"s":"BTCUSDT","U":100,"u":105,"pu":99,"b":[["50000.00","1.000"]],"a":[]})";
+    TEST_CHECK(parser.parse_diff(usdm_json, diff) && diff.pu == 99 && diff.U == 100 && diff.u == 105,
+               "155: parse_diff successfully extracts USD-M pu field");
+
+    // 156. USD-M sync state machine bridge with pu
+    SymbolSyncStateMachine usdm_bridge_sm(binance::Venue::Usdm);
+    usdm_bridge_sm.on_depth5(100);
+    TEST_CHECK(usdm_bridge_sm.on_diff(100, 105, 99) == SyncAction::Apply && usdm_bridge_sm.is_synced(),
+               "156: USD-M first diff with pu <= lastUpdateId <= u applies successfully");
+
+    // 157. USD-M sync state machine rejects gap on first diff when pu > lastUpdateId
+    SymbolSyncStateMachine usdm_gap_sm(binance::Venue::Usdm);
+    usdm_gap_sm.on_depth5(100);
+    TEST_CHECK(usdm_gap_sm.on_diff(105, 110, 102) == SyncAction::Resync && !usdm_gap_sm.is_synced(),
+               "157: USD-M first diff with pu > lastUpdateId triggers Resync");
 }
 
 int main() {

@@ -101,6 +101,10 @@ bool JsonPayloadParser::parse_diff(std::string_view data_slice, DiffPayload& out
     auto U_val = doc["U"].get_uint64();
     if (!U_val.error()) out.U = U_val.value();
 
+    out.pu = 0;
+    auto pu_val = doc["pu"].get_uint64();
+    if (!pu_val.error()) out.pu = pu_val.value();
+
     auto E_val = doc["E"].get_uint64();
     if (!E_val.error()) out.E = E_val.value();
 
@@ -152,11 +156,18 @@ bool JsonPayloadParser::parse_depth5(std::string_view data_slice, Depth5Payload&
         return false;
     }
 
+    out.last_update_id = 0;
     auto luid_val = doc["lastUpdateId"].get_uint64();
-    if (!luid_val.error()) out.last_update_id = luid_val.value();
+    if (!luid_val.error()) {
+        out.last_update_id = luid_val.value();
+    } else {
+        auto u_val = doc["u"].get_uint64();
+        if (!u_val.error()) out.last_update_id = u_val.value();
+    }
 
     simdjson::dom::array bids_arr;
-    if (!doc["bids"].get_array().get(bids_arr)) {
+    bool has_bids = (!doc["bids"].get_array().get(bids_arr)) || (!doc["b"].get_array().get(bids_arr));
+    if (has_bids) {
         for (simdjson::dom::element item : bids_arr) {
             simdjson::dom::array pair;
             if (!item.get_array().get(pair)) {
@@ -172,7 +183,8 @@ bool JsonPayloadParser::parse_depth5(std::string_view data_slice, Depth5Payload&
     }
 
     simdjson::dom::array asks_arr;
-    if (!doc["asks"].get_array().get(asks_arr)) {
+    bool has_asks = (!doc["asks"].get_array().get(asks_arr)) || (!doc["a"].get_array().get(asks_arr));
+    if (has_asks) {
         for (simdjson::dom::element item : asks_arr) {
             simdjson::dom::array pair;
             if (!item.get_array().get(pair)) {
