@@ -12,6 +12,7 @@ endif()
 
 # Build options
 option(ENABLE_SANITIZERS "Enable Address and Undefined Behavior Sanitizers" OFF)
+option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(ENABLE_LTO "Enable Link Time Optimization (IPO)" OFF)
 
 if(ENABLE_LTO)
@@ -36,8 +37,11 @@ if(MSVC)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
     if(ENABLE_SANITIZERS)
-        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
         add_link_options(-fsanitize=address,undefined)
+    elseif(ENABLE_TSAN)
+        add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+        add_link_options(-fsanitize=thread)
     endif()
 endif()
 

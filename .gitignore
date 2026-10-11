@@ -23,7 +23,7 @@ verify_*/
 logs/
 
 # Allow tracked samples and fixtures
-!samples/*.csv
+!samples/*
 !fixtures/*
 
 # Environment and secrets

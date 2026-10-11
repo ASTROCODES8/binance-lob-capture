@@ -2,30 +2,167 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
   pull_request:
-    branches: [ main ]
+    branches: [ master, main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ubuntu-build:
+  # ============================================================================
+  # 1. Linux Job: GCC 12 Release, Unit Tests, SPSC Stress, Golden Hash Check
+  # ============================================================================
+  linux:
+    name: Linux (GCC 12 Release)
     runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake ninja-build g++-12 libssl-dev libboost-all-dev
+        sudo apt-get install -y cmake ninja-build g++-12 gcc-12 libssl-dev libboost-all-dev python3
 
-    - name: Configure CMake
+    - name: Configure CMake (Release)
       run: |
         cmake -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER=gcc-12 \
           -DCMAKE_CXX_COMPILER=g++-12 \
-          -DENABLE_SANITIZERS=OFF
+          -DENABLE_SANITIZERS=OFF \
+          -DENABLE_TSAN=OFF
 
-    - name: Build
+    - name: Build All Targets
       run: cmake --build build --parallel
 
-    - name: Run Tests
+    - name: Run Unit Tests
       run: ./build/unit_tests
+
+    - name: Run 10M SPSC Lock-Free Ring Stress Test
+      run: ./build/spsc_stress
+
+    - name: Replay Golden File & Verify SHA-256 Checksum
+      run: |
+        ./build/binance_capture --replay samples/golden_market_data_spot_BTCUSDT.csv --output-dir ci_replay --bench
+        EXPECTED_HASH=$(awk '{print $1}' samples/orderbook.sha256 | tr '[:lower:]' '[:upper:]')
+        ACTUAL_HASH=$(sha256sum ci_replay/*_orderbook.csv | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
+        echo "Expected Hash: ${EXPECTED_HASH}"
+        echo "Actual Hash:   ${ACTUAL_HASH}"
+        if [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
+          echo "[ERROR] Replay orderbook SHA-256 does not match samples/orderbook.sha256!" >&2
+          exit 1
+        fi
+        echo "[SUCCESS] Replay hash verified bit-for-bit against committed golden file."
+
+    - name: Run CSV Sanity Checker
+      run: python3 scripts/check_csv_sanity.py --dir ci_replay
+
+  # ============================================================================
+  # 2. Sanitize Job: ASan + UBSan + TSan (ThreadSanitizer on Ring Buffer)
+  # ============================================================================
+  sanitize:
+    name: Sanitizers (ASan + UBSan + TSan)
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build g++-12 gcc-12 libssl-dev libboost-all-dev python3
+
+    # --- Part A: AddressSanitizer & UndefinedBehaviorSanitizer ---
+    - name: Configure CMake (ASan + UBSan)
+      run: |
+        cmake -B build-asan -G Ninja \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_C_COMPILER=gcc-12 \
+          -DCMAKE_CXX_COMPILER=g++-12 \
+          -DENABLE_SANITIZERS=ON \
+          -DENABLE_TSAN=OFF
+
+    - name: Build ASan + UBSan Targets
+      run: cmake --build build-asan --parallel --target unit_tests binance_capture
+
+    - name: Run Unit Tests under ASan + UBSan
+      run: |
+        ASAN_OPTIONS="detect_leaks=1:abort_on_error=1:detect_stack_use_after_return=1" \
+        UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1" \
+        ./build-asan/unit_tests
+
+    - name: Run Replay Engine under ASan + UBSan
+      run: |
+        ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" \
+        UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1" \
+        ./build-asan/binance_capture --replay samples/golden_market_data_spot_BTCUSDT.csv --output-dir asan_replay
+
+    # --- Part B: ThreadSanitizer (TSan for Lock-Free Ring Test) ---
+    - name: Configure CMake (TSan)
+      run: |
+        cmake -B build-tsan -G Ninja \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_C_COMPILER=gcc-12 \
+          -DCMAKE_CXX_COMPILER=g++-12 \
+          -DENABLE_SANITIZERS=OFF \
+          -DENABLE_TSAN=ON
+
+    - name: Build SPSC Stress Target under TSan
+      run: cmake --build build-tsan --parallel --target spsc_stress
+
+    - name: Run 10M Message SPSC Stress Test under TSan
+      run: |
+        TSAN_OPTIONS="abort_on_error=1:report_atomic_races=1" \
+        ./build-tsan/spsc_stress
+
+  # ============================================================================
+  # 3. Windows Job: MSVC 2022 Release, vcpkg / OpenSSL, Unit Tests & Replay
+  # ============================================================================
+  windows:
+    name: Windows (MSVC 2022 Release)
+    runs-on: windows-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Pre-compiled OpenSSL
+      run: |
+        winget install ShiningLight.OpenSSL.Dev --accept-source-agreements --accept-package-agreements
+
+    - name: Install Boost via vcpkg
+      run: |
+        & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" --classic install boost-beast:x64-windows boost-asio:x64-windows boost-system:x64-windows
+
+    - name: Configure CMake (MSVC Release)
+      run: |
+        cmake -B build -S . `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+
+    - name: Build All Targets (MSVC)
+      run: cmake --build build --config Release --parallel
+
+    - name: Run Unit Tests
+      run: .\build\Release\unit_tests.exe
+
+    - name: Run 10M SPSC Stress Test
+      run: .\build\Release\spsc_stress.exe
+
+    - name: Replay Golden File & Verify SHA-256 Checksum
+      run: |
+        .\build\Release\binance_capture.exe --replay samples\golden_market_data_spot_BTCUSDT.csv --output-dir win_replay --bench
+        $expectedHash = (Get-Content samples\orderbook.sha256).Split(" ")[0].Trim().ToUpper()
+        $actualHash = (Get-FileHash win_replay\*_orderbook.csv).Hash.ToUpper()
+        Write-Host "Expected Hash: $expectedHash"
+        Write-Host "Actual Hash:   $actualHash"
+        if ($expectedHash -ne $actualHash) {
+          throw "Orderbook SHA-256 mismatch against committed golden checksum!"
+        }
+        Write-Host "[SUCCESS] Windows replay matched golden file bit-for-bit."
+
+    - name: Run CSV Sanity Checker
+      run: python scripts\check_csv_sanity.py --dir win_replay

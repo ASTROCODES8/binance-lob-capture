@@ -1,5 +1,10 @@
 # Binance WebSocket Capture & Local Order Book (LOB)
 
+[![CI](https://github.com/ASTROCODES8/binance-lob-capture/actions/workflows/ci.yml/badge.svg)](https://github.com/ASTROCODES8/binance-lob-capture/actions/workflows/ci.yml)
+[![C++17](https://img.shields.io/badge/Language-C%2B%2B17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+[![Tests](https://img.shields.io/badge/Tests-159%20Passed-brightgreen.svg)](#running-tests)
+[![Sanitizers](https://img.shields.io/badge/Sanitizers-ASan%20%7C%20UBSan%20%7C%20TSan-success.svg)](#threadsanitizer-verification-linux)
+
 High-performance, low-latency C++17 market data capture and deterministic order book maintenance engine for Binance WebSocket streams.
 
 ---
