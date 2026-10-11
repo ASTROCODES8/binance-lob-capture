@@ -30,6 +30,12 @@ void escape_rfc4180(std::string_view input, std::string& out) {
     out.push_back('"');
 }
 
+namespace {
+// Thread-local day epoch cache: avoids re-running civil division when successive ticks occur on the same day
+thread_local int64_t tl_cached_days = -9999999999LL;
+thread_local char tl_cached_date[12] = {0};
+} // anonymous namespace
+
 bool format_utc_date(int64_t tsec, char* out_buf, size_t out_len) noexcept {
     if (out_buf == nullptr || out_len < 11) {
         return false;
@@ -41,10 +47,16 @@ bool format_utc_date(int64_t tsec, char* out_buf, size_t out_len) noexcept {
         days -= 1;
     }
 
+    // Fast path: if day epoch matches cached value, copy pre-formatted date string
+    if (days == tl_cached_days) {
+        std::memcpy(out_buf, tl_cached_date, 11);
+        return true;
+    }
+
     // Shift epoch from 1970-01-01 to 0000-03-01
-    days += 719468;
-    const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
-    const uint64_t doe = static_cast<uint64_t>(days - era * 146097);
+    const int64_t shifted_days = days + 719468;
+    const int64_t era = (shifted_days >= 0 ? shifted_days : shifted_days - 146096) / 146097;
+    const uint64_t doe = static_cast<uint64_t>(shifted_days - era * 146097);
     const uint64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     const int64_t y = static_cast<int64_t>(yoe) + era * 400;
     const uint64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
@@ -53,22 +65,24 @@ bool format_utc_date(int64_t tsec, char* out_buf, size_t out_len) noexcept {
     const uint32_t m = static_cast<uint32_t>(mp < 10 ? mp + 3 : mp - 9);
     const int64_t year = y + (m <= 2 ? 1 : 0);
 
-    // Format YYYY-MM-DD
+    // Format YYYY-MM-DD into thread-local cache
     auto uyear = static_cast<uint32_t>(year);
-    out_buf[0] = static_cast<char>('0' + (uyear / 1000) % 10);
-    out_buf[1] = static_cast<char>('0' + (uyear / 100) % 10);
-    out_buf[2] = static_cast<char>('0' + (uyear / 10) % 10);
-    out_buf[3] = static_cast<char>('0' + uyear % 10);
-    out_buf[4] = '-';
+    tl_cached_date[0] = static_cast<char>('0' + (uyear / 1000) % 10);
+    tl_cached_date[1] = static_cast<char>('0' + (uyear / 100) % 10);
+    tl_cached_date[2] = static_cast<char>('0' + (uyear / 10) % 10);
+    tl_cached_date[3] = static_cast<char>('0' + uyear % 10);
+    tl_cached_date[4] = '-';
 
-    out_buf[5] = static_cast<char>('0' + (m / 10));
-    out_buf[6] = static_cast<char>('0' + (m % 10));
-    out_buf[7] = '-';
+    tl_cached_date[5] = static_cast<char>('0' + (m / 10));
+    tl_cached_date[6] = static_cast<char>('0' + (m % 10));
+    tl_cached_date[7] = '-';
 
-    out_buf[8] = static_cast<char>('0' + (d / 10));
-    out_buf[9] = static_cast<char>('0' + (d % 10));
-    out_buf[10] = '\0';
+    tl_cached_date[8] = static_cast<char>('0' + (d / 10));
+    tl_cached_date[9] = static_cast<char>('0' + (d % 10));
+    tl_cached_date[10] = '\0';
 
+    tl_cached_days = days;
+    std::memcpy(out_buf, tl_cached_date, 11);
     return true;
 }
 

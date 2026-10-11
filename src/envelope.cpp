@@ -11,6 +11,14 @@ EnvelopeResult parse_envelope(std::string_view raw_msg) noexcept {
         return result;
     }
 
+    // Optimization: Strip UTF-8 BOM if present (e.g. from Windows tools or PowerShell)
+    if (raw_msg.size() >= 3 &&
+        static_cast<unsigned char>(raw_msg[0]) == 0xEF &&
+        static_cast<unsigned char>(raw_msg[1]) == 0xBB &&
+        static_cast<unsigned char>(raw_msg[2]) == 0xBF) {
+        raw_msg.remove_prefix(3);
+    }
+
     // 1. Locate "stream" key
     const size_t stream_pos = raw_msg.find("\"stream\"");
     if (stream_pos == std::string_view::npos) {
@@ -59,13 +67,28 @@ EnvelopeResult parse_envelope(std::string_view raw_msg) noexcept {
     }
     result.symbol_len = static_cast<uint8_t>(raw_symbol.size());
 
-    // 3. Classify StreamKind from suffix
-    if (stream_suffix == "depth@100ms" || stream_suffix == "depth") {
-        result.stream_kind = binance::StreamKind::DepthDiff;
-    } else if (stream_suffix == "depth5@100ms" || stream_suffix == "depth5") {
-        result.stream_kind = binance::StreamKind::Depth5;
-    } else if (stream_suffix == "trade") {
-        result.stream_kind = binance::StreamKind::Trade;
+    // 3. Classify StreamKind from suffix using fast initial character dispatch
+    if (!stream_suffix.empty()) {
+        if (stream_suffix[0] == 't') {
+            if (stream_suffix == "trade") {
+                result.stream_kind = binance::StreamKind::Trade;
+            } else {
+                result.status = EnvelopeStatus::UnknownStreamSuffix;
+                return result;
+            }
+        } else if (stream_suffix[0] == 'd') {
+            if (stream_suffix == "depth@100ms" || stream_suffix == "depth") {
+                result.stream_kind = binance::StreamKind::DepthDiff;
+            } else if (stream_suffix == "depth5@100ms" || stream_suffix == "depth5") {
+                result.stream_kind = binance::StreamKind::Depth5;
+            } else {
+                result.status = EnvelopeStatus::UnknownStreamSuffix;
+                return result;
+            }
+        } else {
+            result.status = EnvelopeStatus::UnknownStreamSuffix;
+            return result;
+        }
     } else {
         result.status = EnvelopeStatus::UnknownStreamSuffix;
         return result;

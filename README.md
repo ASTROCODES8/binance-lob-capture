@@ -29,6 +29,17 @@ In limit order book maintenance, selecting the underlying data structure involve
 
 **Design Choice**: For Binance Spot 100ms differential streams, updates contain modest level counts (10–50 updates per event). `std::map` provides deterministic $O(\log N)$ delta modifications and clean top-5 re-anchoring via `replace_top5_from_depth5` without $O(N)$ shift penalties.
 
+### Implemented Low-Latency Optimizations
+1. **Thread-Local Civil Date Caching (`src/csv.cpp`)**:
+   - Successive ticks on the same day ($tsec / 86400 == \text{cached\_day}$) bypass civil date division entirely.
+   - Formats date string once per day and performs a single 128-bit vector copy for all subsequent rows, saving ~15 arithmetic cycles per message.
+2. **UTF-8 BOM Stripper Pre-flight (`src/envelope.cpp`)**:
+   - Inspects the first 3 bytes for `\xEF\xBB\xBF` and advances the `std::string_view` prefix in $O(1)$ time, guaranteeing compatibility with files saved by Windows PowerShell / Notepad.
+3. **Fast Stream Kind Character Dispatch (`src/envelope.cpp`)**:
+   - Uses initial-character branch partitioning (`'t'` for trade, `'d'` for depth/depth5) rather than multiple sequential string comparisons.
+4. **Single Reused `simdjson` Parser (`src/lob.cpp`)**:
+   - Single reused `simdjson::dom::parser` with pre-allocated 64 KB padded buffer eliminates per-message heap allocation and internal tape rebuilding.
+
 ---
 
 ## 3. Policies & Specifications

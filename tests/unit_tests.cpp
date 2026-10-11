@@ -235,6 +235,14 @@ void run_date_and_filename_tests() {
     std::string fn3 = build_csv_filename("output", "spot", "BTCUSDT", 1736899200LL, false);
     TEST_CHECK(fn3 == "output/market_data_spot_BTCUSDT_2025-01-15.csv",
                "36: filename builder with output directory");
+
+    // Optimization check: Date cache hit and rollover across day boundary
+    format_utc_date(1736985599LL, date_buf, sizeof(date_buf));
+    TEST_CHECK(std::strcmp(date_buf, "2025-01-15") == 0,
+               "date cache day 1 fast path");
+    format_utc_date(1736985600LL, date_buf, sizeof(date_buf));
+    TEST_CHECK(std::strcmp(date_buf, "2025-01-16") == 0,
+               "date cache rollover on midnight boundary");
 }
 
 void run_csv_header_tests() {
@@ -374,6 +382,13 @@ void run_envelope_tests() {
     auto r11 = parse_envelope(complex_fixture);
     TEST_CHECK(r11.ok() && r11.data_slice == "{\"msg\":\"has {brace} and \\\"quote\\\"\"}",
                "55: quote-aware brace matching inside data payload");
+
+    // Optimization check: UTF-8 BOM stripped transparently
+    const std::string_view bom_fixture =
+        "\xEF\xBB\xBF{\"stream\":\"btcusdt@trade\",\"data\":{\"e\":\"trade\"}}";
+    auto r_bom = parse_envelope(bom_fixture);
+    TEST_CHECK(r_bom.ok() && r_bom.symbol_view() == "BTCUSDT" && r_bom.stream_kind == binance::StreamKind::Trade,
+               "BOM stripped transparently from envelope");
 }
 
 void run_lob_tests() {
