@@ -343,7 +343,7 @@ python3 scripts/check_csv_sanity.py --dir ./output
 
 ---
 
-## 10. Functional Acceptance Checklist
+## 10. Functional Specification Compliance
 
 | # | Criterion | Verification & Evidence | Status |
 | :-: | :--- | :--- | :-: |
@@ -356,7 +356,7 @@ python3 scripts/check_csv_sanity.py --dir ./output
 
 ---
 
-## 11. Reviewer Checklist (Code Review & Quality)
+## 11. Verification & Quality Matrix
 
 | Item | Command / Audit Point | Verification Output | Status |
 | :--- | :--- | :--- | :-: |
@@ -369,22 +369,39 @@ python3 scripts/check_csv_sanity.py --dir ./output
 
 ---
 
-## 12. GitHub Submission Steps
+## 12. Repository Structure
 
-### Repository Setup
-```bash
-git init
-git add .
-git commit -m "Initial submission: Binance WebSocket capture and LOB engine"
-git remote add origin https://github.com/ASTROCODES8/binance-lob-capture.git
-git branch -M main
-git push -u origin main
+```text
+.
+├── CMakeLists.txt                # Build configuration (C++17, sanitizers, Boost, simdjson)
+├── include/                      # Public data contracts and types
+│   ├── fixed_point.hpp           # 10^8 integer scaling utilities
+│   ├── time_utils.hpp            # Fast integer civil date and timestamp routines
+│   └── types.hpp                 # Common data structures
+├── src/                          # Core engine implementation
+│   ├── decimal.cpp / .hpp        # Zero-allocation integer string accumulator
+│   ├── csv.cpp / .hpp            # RFC 4180 CSV serialization and buffered file writer
+│   ├── envelope.cpp / .hpp       # Combined stream payload slicer and BOM handling
+│   ├── lob.cpp / .hpp            # Local Order Book price level state and top-5 extraction
+│   ├── sync.cpp / .hpp           # Sequence gap checking and book synchronization state machine
+│   ├── spsc_ring.hpp             # Lock-free SPSC ring buffer (cacheline padded alignas(64))
+│   ├── processor.cpp / .hpp      # Event consumer, LOB mutator, and CSV emitter
+│   ├── net.cpp / .hpp            # Boost.Beast WebSocket TLS client
+│   ├── replay.cpp / .hpp         # Zero-network offline deterministic replay engine
+│   └── main.cpp                  # CLI entry point and session coordinator
+├── tests/                        # Automated test suites
+│   ├── unit_tests.cpp            # 163 unit tests covering math, CSV, LOB, and sync
+│   └── spsc_stress.cpp           # 10M message multi-threaded SPSC stress test
+├── samples/                      # Golden files and verified output samples
+│   ├── golden_market_data_*.csv  # Reference input audit log
+│   ├── golden_orderbook_*.csv    # Reference output order book snapshot log
+│   └── orderbook.sha256          # Cryptographic baseline checksum
+├── scripts/                      # Verification and sanity auditing scripts
+│   ├── check_csv_sanity.py       # Cross-platform Python schema and invariant validator
+│   ├── check_csv_sanity.ps1      # Native PowerShell CSV validator
+│   └── verify_live_vs_replay.ps1 # End-to-end live vs replay verification runner
+└── docs/
+    └── DESIGN.md                 # Architectural design doc, trade-offs, and 100x scaling
 ```
 
-### Git Tag
-```bash
-git tag -a v1.0.0 -m "Submission v1.0.0"
-git push origin v1.0.0
-```
-
-Detailed design trade-offs, lock-free queue benchmarks, and 100x load scaling architectures are documented in [`docs/DESIGN.md`](docs/DESIGN.md).
+For an in-depth analysis of container trade-offs (`std::map` vs. flat vector), lock-free queue benchmarks, and scaling to 100x market load (kernel bypass networking, hardware PTP timestamping, `io_uring`), see [`docs/DESIGN.md`](docs/DESIGN.md).
