@@ -2,6 +2,7 @@
 #include "../src/csv.hpp"
 #include "../src/envelope.hpp"
 #include "../src/lob.hpp"
+#include "../src/sync.hpp"
 #include <iostream>
 #include <cassert>
 #include <cstring>
@@ -475,6 +476,87 @@ void run_lob_tests() {
                "73: JsonPayloadParser extracted trade price, size, and maker side");
 }
 
+void run_sync_tests() {
+    // 74. Initial state is AwaitingSnapshot; diffs and trades are dropped
+    SymbolSyncStateMachine sm;
+    TEST_CHECK(sm.state() == SyncState::AwaitingSnapshot && !sm.is_synced(),
+               "74: initial state is AwaitingSnapshot");
+    TEST_CHECK(sm.on_diff(100, 105) == SyncAction::Drop && sm.dropped_count() == 1,
+               "75: unanchored diff dropped while AwaitingSnapshot");
+    TEST_CHECK(sm.on_trade() == SyncAction::Drop && sm.dropped_count() == 2,
+               "76: unanchored trade dropped while AwaitingSnapshot");
+
+    // 77. Clean snapshot anchor
+    TEST_CHECK(sm.on_depth5(105) == SyncAction::Apply && sm.is_synced() && sm.resync_count() == 1,
+               "77: depth5 anchors book and transitions to Synced");
+
+    // 78. Stale diff with u <= lastUpdateId is dropped
+    TEST_CHECK(sm.on_diff(95, 105) == SyncAction::Drop && sm.dropped_count() == 3,
+               "78: stale diff with u <= lastUpdateId dropped");
+
+    // 79. First valid bridging diff (U <= lastUpdateId+1 <= u) applied
+    TEST_CHECK(sm.on_diff(100, 110) == SyncAction::Apply && sm.prev_u() == 110,
+               "79: first diff bridging snapshot applied successfully");
+
+    // 80. Subsequent continuous diffs (U == prev_u + 1) applied
+    TEST_CHECK(sm.on_diff(111, 120) == SyncAction::Apply && sm.prev_u() == 120,
+               "80: subsequent continuous diff U == prev_u + 1 applied");
+    TEST_CHECK(sm.on_diff(121, 130) == SyncAction::Apply && sm.prev_u() == 130,
+               "81: continuous diff chain maintained");
+    TEST_CHECK(sm.on_trade() == SyncAction::Apply,
+               "82: trade applied when Synced");
+
+    // 83. Sequence gap detection: expected 131, received 135
+    TEST_CHECK(sm.on_diff(135, 140) == SyncAction::Resync && sm.state() == SyncState::Invalid &&
+               sm.gap_count() == 1,
+               "83: gap in U detects missed updates, triggers Resync and Invalid state");
+
+    // 84. Diffs and trades dropped while Invalid
+    TEST_CHECK(sm.on_diff(141, 145) == SyncAction::Drop,
+               "84: diff dropped while in Invalid state");
+    TEST_CHECK(sm.on_trade() == SyncAction::Drop,
+               "85: trade dropped while in Invalid state");
+
+    // 86. Resync recovery on new depth5 snapshot
+    TEST_CHECK(sm.on_depth5(150) == SyncAction::Apply && sm.is_synced() && sm.resync_count() == 2,
+               "86: recovery from Invalid on next depth5 snapshot");
+    TEST_CHECK(sm.on_diff(148, 155) == SyncAction::Apply && sm.prev_u() == 155,
+               "87: valid bridging diff after recovery applied");
+
+    // 88. Duplicate / out-of-order diff detection: received 148 <= 155
+    TEST_CHECK(sm.on_diff(148, 155) == SyncAction::Resync && sm.state() == SyncState::Invalid &&
+               sm.gap_count() == 2,
+               "88: duplicate/out-of-order diff triggers Resync and Invalid state");
+
+    // 89. Reconnect handling increments epoch and resets to AwaitingSnapshot
+    TEST_CHECK(sm.on_reconnect() == SyncAction::Resync && sm.conn_epoch() == 1 &&
+               sm.state() == SyncState::AwaitingSnapshot,
+               "89: on_reconnect increments conn_epoch and resets state machine");
+
+    // 90. Ring overflow handling forces Invalid state
+    sm.on_depth5(200); // re-anchor
+    sm.on_diff(200, 210); // bridge
+    TEST_CHECK(sm.is_synced(), "90: state machine re-synced after reconnect");
+    TEST_CHECK(sm.on_ring_overflow() == SyncAction::Resync && sm.state() == SyncState::Invalid &&
+               sm.counters().ring_overflows == 1,
+               "91: on_ring_overflow marks book Invalid and triggers Resync");
+
+    // 92. First diff gap after snapshot (U > lastUpdateId + 1)
+    sm.on_depth5(300);
+    TEST_CHECK(sm.on_diff(305, 310) == SyncAction::Resync && sm.state() == SyncState::Invalid &&
+               sm.gap_count() == 3,
+               "92: gap on first diff after snapshot triggers Resync");
+
+    // 93. USD-M futures pu check hook
+    SymbolSyncStateMachine usdm_sm(binance::Venue::Usdm);
+    usdm_sm.on_depth5(500);
+    usdm_sm.on_diff(500, 510, 500); // bridge
+    TEST_CHECK(usdm_sm.on_diff(511, 520, 510) == SyncAction::Apply,
+               "93: USD-M diff with matching pu applied");
+    TEST_CHECK(usdm_sm.on_diff(521, 530, 999) == SyncAction::Resync && usdm_sm.state() == SyncState::Invalid,
+               "94: USD-M diff with mismatched pu detected and triggers Resync");
+}
+
 int main() {
     std::cout << "Running Binance LOB capture unit tests...\n";
 
@@ -485,6 +567,7 @@ int main() {
     run_formatting_and_buffered_file_tests();
     run_envelope_tests();
     run_lob_tests();
+    run_sync_tests();
 
     std::cout << "Tests completed. Passed: " << g_tests_passed
               << ", Failed: " << g_tests_failed << "\n";

@@ -64,6 +64,7 @@ add_library(lobcore STATIC
     src/csv.cpp
     src/envelope.cpp
     src/lob.cpp
+    src/sync.cpp
 )
 target_include_directories(lobcore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
