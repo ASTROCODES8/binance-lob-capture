@@ -1,154 +1,138 @@
 #include "envelope.hpp"
+#include <cctype>
 
 namespace lob {
 
-ParsedEnvelope parse_envelope(std::string_view raw_msg) noexcept {
-    ParsedEnvelope out{};
+EnvelopeResult parse_envelope(std::string_view raw_msg) noexcept {
+    EnvelopeResult result;
 
     if (raw_msg.empty()) {
-        out.status = EnvelopeStatus::EmptyInput;
-        return out;
+        result.status = EnvelopeStatus::EmptyInput;
+        return result;
     }
 
     // 1. Locate "stream" key
-    constexpr std::string_view STREAM_KEY = "\"stream\"";
-    size_t stream_key_pos = raw_msg.find(STREAM_KEY);
-    if (stream_key_pos == std::string_view::npos) {
-        out.status = EnvelopeStatus::MissingStream;
-        return out;
+    const size_t stream_pos = raw_msg.find("\"stream\"");
+    if (stream_pos == std::string_view::npos) {
+        result.status = EnvelopeStatus::MissingStreamKey;
+        return result;
     }
 
-    size_t colon_pos = raw_msg.find(':', stream_key_pos + STREAM_KEY.size());
+    const size_t colon_pos = raw_msg.find(':', stream_pos + 8);
     if (colon_pos == std::string_view::npos) {
-        out.status = EnvelopeStatus::MalformedStream;
-        return out;
+        result.status = EnvelopeStatus::MissingStreamKey;
+        return result;
     }
 
-    // Find opening quote of stream value
-    size_t stream_val_start = raw_msg.find('"', colon_pos + 1);
-    if (stream_val_start == std::string_view::npos) {
-        out.status = EnvelopeStatus::MalformedStream;
-        return out;
-    }
-    ++stream_val_start; // Move past opening quote
-
-    // Find closing quote of stream value
-    size_t stream_val_end = raw_msg.find('"', stream_val_start);
-    if (stream_val_end == std::string_view::npos) {
-        out.status = EnvelopeStatus::MalformedStream;
-        return out;
+    const size_t val_start = raw_msg.find('\"', colon_pos + 1);
+    if (val_start == std::string_view::npos) {
+        result.status = EnvelopeStatus::MissingStreamKey;
+        return result;
     }
 
-    std::string_view stream_name = raw_msg.substr(stream_val_start, stream_val_end - stream_val_start);
+    const size_t val_end = raw_msg.find('\"', val_start + 1);
+    if (val_end == std::string_view::npos) {
+        result.status = EnvelopeStatus::MissingStreamKey;
+        return result;
+    }
 
-    // 2. Extract symbol and stream kind from stream_name (e.g. "btcusdt@depth@100ms")
-    size_t at_pos = stream_name.find('@');
+    const std::string_view stream_name = raw_msg.substr(val_start + 1, val_end - val_start - 1);
+
+    // 2. Split stream_name by '@' into symbol and suffix
+    const size_t at_pos = stream_name.find('@');
     if (at_pos == std::string_view::npos || at_pos == 0) {
-        out.status = EnvelopeStatus::MalformedStream;
-        return out;
+        result.status = EnvelopeStatus::MissingAtSeparator;
+        return result;
     }
 
-    std::string_view raw_symbol = stream_name.substr(0, at_pos);
-    std::string_view suffix = stream_name.substr(at_pos + 1);
+    const std::string_view raw_symbol = stream_name.substr(0, at_pos);
+    const std::string_view stream_suffix = stream_name.substr(at_pos + 1);
 
-    if (raw_symbol.size() >= sizeof(out.symbol_buf)) {
-        out.status = EnvelopeStatus::MalformedStream;
-        return out;
+    if (raw_symbol.size() > result.symbol.size() - 1) {
+        result.status = EnvelopeStatus::SymbolTooLong;
+        return result;
     }
 
-    // Convert symbol to uppercase into fixed buffer
+    // Convert symbol to uppercase in fixed buffer (no allocation)
     for (size_t i = 0; i < raw_symbol.size(); ++i) {
-        char c = raw_symbol[i];
-        if (c >= 'a' && c <= 'z') {
-            c = static_cast<char>(c - 'a' + 'A');
-        }
-        out.symbol_buf[i] = c;
+        result.symbol[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(raw_symbol[i])));
     }
-    out.symbol_len = raw_symbol.size();
-    out.symbol_buf[out.symbol_len] = '\0';
+    result.symbol_len = static_cast<uint8_t>(raw_symbol.size());
 
-    // Identify stream kind from suffix
-    // Binance stream suffixes:
-    // depth5@100ms -> Depth5
-    // depth@100ms  -> DepthDiff
-    // trade        -> Trade
-    if (suffix.rfind("depth5", 0) == 0) {
-        out.stream_kind = StreamKind::Depth5;
-    } else if (suffix.rfind("depth", 0) == 0) {
-        out.stream_kind = StreamKind::DepthDiff;
-    } else if (suffix.rfind("trade", 0) == 0) {
-        out.stream_kind = StreamKind::Trade;
+    // 3. Classify StreamKind from suffix
+    if (stream_suffix == "depth@100ms" || stream_suffix == "depth") {
+        result.stream_kind = binance::StreamKind::DepthDiff;
+    } else if (stream_suffix == "depth5@100ms" || stream_suffix == "depth5") {
+        result.stream_kind = binance::StreamKind::Depth5;
+    } else if (stream_suffix == "trade") {
+        result.stream_kind = binance::StreamKind::Trade;
     } else {
-        out.status = EnvelopeStatus::UnknownStreamKind;
-        return out;
+        result.status = EnvelopeStatus::UnknownStreamSuffix;
+        return result;
     }
 
-    // 3. Locate "data" key
-    constexpr std::string_view DATA_KEY = "\"data\"";
-    size_t data_key_pos = raw_msg.find(DATA_KEY);
-    if (data_key_pos == std::string_view::npos) {
-        out.status = EnvelopeStatus::MissingData;
-        return out;
+    // 4. Locate "data" key
+    const size_t data_pos = raw_msg.find("\"data\"");
+    if (data_pos == std::string_view::npos) {
+        result.status = EnvelopeStatus::MissingDataKey;
+        return result;
     }
 
-    colon_pos = raw_msg.find(':', data_key_pos + DATA_KEY.size());
-    if (colon_pos == std::string_view::npos) {
-        out.status = EnvelopeStatus::MalformedData;
-        return out;
+    const size_t data_colon = raw_msg.find(':', data_pos + 6);
+    if (data_colon == std::string_view::npos) {
+        result.status = EnvelopeStatus::MissingDataKey;
+        return result;
     }
 
-    // Skip whitespace after colon to find start of data object
-    size_t data_start = colon_pos + 1;
-    while (data_start < raw_msg.size() &&
-           (raw_msg[data_start] == ' ' || raw_msg[data_start] == '\t' ||
-            raw_msg[data_start] == '\r' || raw_msg[data_start] == '\n')) {
-        ++data_start;
+    const size_t obj_start = raw_msg.find('{', data_colon + 1);
+    if (obj_start == std::string_view::npos) {
+        result.status = EnvelopeStatus::MissingDataKey;
+        return result;
     }
 
-    if (data_start >= raw_msg.size() || raw_msg[data_start] != '{') {
-        out.status = EnvelopeStatus::MalformedData;
-        return out;
-    }
-
-    // Slice balanced JSON object by counting braces
+    // 5. Extract JSON object slice with quote-aware brace matching
     int depth = 0;
-    bool in_string = false;
-    bool escape_next = false;
-    size_t data_end = std::string_view::npos;
+    bool in_quotes = false;
+    bool escaped = false;
+    size_t obj_end = std::string_view::npos;
 
-    for (size_t i = data_start; i < raw_msg.size(); ++i) {
+    for (size_t i = obj_start; i < raw_msg.size(); ++i) {
         char c = raw_msg[i];
-        if (in_string) {
-            if (escape_next) {
-                escape_next = false;
-            } else if (c == '\\') {
-                escape_next = true;
-            } else if (c == '"') {
-                in_string = false;
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (c == '\\') {
+            if (in_quotes) {
+                escaped = true;
             }
-        } else {
-            if (c == '"') {
-                in_string = true;
-            } else if (c == '{') {
+            continue;
+        }
+        if (c == '"') {
+            in_quotes = !in_quotes;
+            continue;
+        }
+        if (!in_quotes) {
+            if (c == '{') {
                 ++depth;
             } else if (c == '}') {
                 --depth;
                 if (depth == 0) {
-                    data_end = i;
+                    obj_end = i;
                     break;
                 }
             }
         }
     }
 
-    if (data_end == std::string_view::npos || depth != 0) {
-        out.status = EnvelopeStatus::MalformedData;
-        return out;
+    if (depth != 0 || obj_end == std::string_view::npos) {
+        result.status = EnvelopeStatus::MalformedBraces;
+        return result;
     }
 
-    out.data_slice = raw_msg.substr(data_start, data_end - data_start + 1);
-    out.status = EnvelopeStatus::Ok;
-    return out;
+    result.data_slice = raw_msg.substr(obj_start, obj_end - obj_start + 1);
+    result.status = EnvelopeStatus::Success;
+    return result;
 }
 
 } // namespace lob

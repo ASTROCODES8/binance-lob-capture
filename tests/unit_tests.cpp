@@ -1,5 +1,6 @@
 #include "../src/decimal.hpp"
 #include "../src/csv.hpp"
+#include "../src/envelope.hpp"
 #include <iostream>
 #include <cassert>
 #include <cstring>
@@ -299,6 +300,80 @@ void run_formatting_and_buffered_file_tests() {
     std::remove("test_buffered_file.tmp");
 }
 
+void run_envelope_tests() {
+    // 45. Real depth5 line from fixtures
+    const std::string_view depth5_fixture =
+        "{\"stream\":\"btcusdt@depth5@100ms\",\"data\":{\"lastUpdateId\":101279355790,\"bids\":[[\"83144.00000000\",\"0.24177000\"]],\"asks\":[[\"83144.01000000\",\"12.05520000\"]]}}";
+    auto r1 = parse_envelope(depth5_fixture);
+    TEST_CHECK(r1.ok() && r1.stream_kind == binance::StreamKind::Depth5 &&
+               r1.symbol_view() == "BTCUSDT" &&
+               r1.data_slice.find("\"lastUpdateId\":101279355790") != std::string_view::npos,
+               "45: parse real depth5 envelope and extract data slice");
+
+    // 46. Real depthUpdate line from fixtures
+    const std::string_view diff_fixture =
+        "{\"stream\":\"btcusdt@depth@100ms\",\"data\":{\"e\":\"depthUpdate\",\"E\":1791722412814,\"s\":\"BTCUSDT\",\"U\":101279355763,\"u\":101279355790,\"b\":[],\"a\":[]}}";
+    auto r2 = parse_envelope(diff_fixture);
+    TEST_CHECK(r2.ok() && r2.stream_kind == binance::StreamKind::DepthDiff &&
+               r2.symbol_view() == "BTCUSDT" &&
+               r2.data_slice.find("\"e\":\"depthUpdate\"") != std::string_view::npos,
+               "46: parse real depthUpdate envelope");
+
+    // 47. Real trade line from fixtures
+    const std::string_view trade_fixture =
+        "{\"stream\":\"btcusdt@trade\",\"data\":{\"e\":\"trade\",\"E\":1791722413645,\"s\":\"BTCUSDT\",\"t\":6752803196,\"p\":\"83144.00000000\",\"q\":\"0.00197000\",\"T\":1791722413645,\"m\":true,\"M\":true}}";
+    auto r3 = parse_envelope(trade_fixture);
+    TEST_CHECK(r3.ok() && r3.stream_kind == binance::StreamKind::Trade &&
+               r3.symbol_view() == "BTCUSDT" &&
+               r3.data_slice.find("\"t\":6752803196") != std::string_view::npos,
+               "47: parse real trade envelope");
+
+    // 48. Different symbol (e.g. ethusdt) correctly converted to uppercase
+    const std::string_view eth_fixture =
+        "{\"stream\":\"ethusdt@depth@100ms\",\"data\":{\"e\":\"depthUpdate\"}}";
+    auto r4 = parse_envelope(eth_fixture);
+    TEST_CHECK(r4.ok() && r4.symbol_view() == "ETHUSDT" &&
+               r4.stream_kind == binance::StreamKind::DepthDiff,
+               "48: parse alternate symbol ETHUSDT in uppercase");
+
+    // 49. Malformed case 1: empty string
+    auto r5 = parse_envelope("");
+    TEST_CHECK(!r5.ok() && r5.status == EnvelopeStatus::EmptyInput,
+               "49: reject empty envelope");
+
+    // 50. Malformed case 2: missing "stream" key
+    auto r6 = parse_envelope("{\"wrong_key\":\"btcusdt@trade\",\"data\":{}}");
+    TEST_CHECK(!r6.ok() && r6.status == EnvelopeStatus::MissingStreamKey,
+               "50: reject envelope missing stream key");
+
+    // 51. Malformed case 3: missing '@' separator in stream name
+    auto r7 = parse_envelope("{\"stream\":\"btcusdt_trade\",\"data\":{}}");
+    TEST_CHECK(!r7.ok() && r7.status == EnvelopeStatus::MissingAtSeparator,
+               "51: reject stream missing @ separator");
+
+    // 52. Malformed case 4: unknown stream suffix
+    auto r8 = parse_envelope("{\"stream\":\"btcusdt@kline_1m\",\"data\":{}}");
+    TEST_CHECK(!r8.ok() && r8.status == EnvelopeStatus::UnknownStreamSuffix,
+               "52: reject unknown stream suffix");
+
+    // 53. Malformed case 5: missing "data" key
+    auto r9 = parse_envelope("{\"stream\":\"btcusdt@trade\"}");
+    TEST_CHECK(!r9.ok() && r9.status == EnvelopeStatus::MissingDataKey,
+               "53: reject envelope missing data key");
+
+    // 54. Malformed case 6: unclosed braces in data
+    auto r10 = parse_envelope("{\"stream\":\"btcusdt@trade\",\"data\":{\"unclosed\":123");
+    TEST_CHECK(!r10.ok() && r10.status == EnvelopeStatus::MalformedBraces,
+               "54: reject unclosed braces in data object");
+
+    // 55. Data with escaped quotes and braces inside string literal
+    const std::string_view complex_fixture =
+        "{\"stream\":\"btcusdt@trade\",\"data\":{\"msg\":\"has {brace} and \\\"quote\\\"\"}}";
+    auto r11 = parse_envelope(complex_fixture);
+    TEST_CHECK(r11.ok() && r11.data_slice == "{\"msg\":\"has {brace} and \\\"quote\\\"\"}",
+               "55: quote-aware brace matching inside data payload");
+}
+
 int main() {
     std::cout << "Running Binance LOB capture unit tests...\n";
 
@@ -307,6 +382,7 @@ int main() {
     run_date_and_filename_tests();
     run_csv_header_tests();
     run_formatting_and_buffered_file_tests();
+    run_envelope_tests();
 
     std::cout << "Tests completed. Passed: " << g_tests_passed
               << ", Failed: " << g_tests_failed << "\n";

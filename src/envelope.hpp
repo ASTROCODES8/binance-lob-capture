@@ -1,78 +1,64 @@
 #pragma once
 
+#include "types.hpp"
 #include <string_view>
 #include <cstdint>
-#include <cstddef>
+#include <array>
 
 namespace lob {
 
-enum class StreamKind : uint8_t {
-    DepthDiff, // <symbol>@depth@100ms
-    Depth5,    // <symbol>@depth5@100ms
-    Trade,     // <symbol>@trade
-    Unknown
-};
-
-[[nodiscard]] constexpr std::string_view stream_kind_to_string(StreamKind k) noexcept {
-    switch (k) {
-        case StreamKind::DepthDiff: return "depth_diff";
-        case StreamKind::Depth5:    return "depth5";
-        case StreamKind::Trade:     return "trade";
-        default:                    return "unknown";
-    }
-}
-
 enum class EnvelopeStatus : uint8_t {
-    Ok = 0,
+    Success = 0,
     EmptyInput,
-    MissingStream,
-    MissingData,
-    MalformedStream,
-    UnknownStreamKind,
-    MalformedData
+    MissingStreamKey,
+    MissingAtSeparator,
+    UnknownStreamSuffix,
+    SymbolTooLong,
+    MissingDataKey,
+    MalformedBraces
 };
 
-[[nodiscard]] constexpr std::string_view envelope_status_to_string(EnvelopeStatus s) noexcept {
-    switch (s) {
-        case EnvelopeStatus::Ok:                return "Ok";
-        case EnvelopeStatus::EmptyInput:        return "EmptyInput";
-        case EnvelopeStatus::MissingStream:     return "MissingStream";
-        case EnvelopeStatus::MissingData:       return "MissingData";
-        case EnvelopeStatus::MalformedStream:   return "MalformedStream";
-        case EnvelopeStatus::UnknownStreamKind: return "UnknownStreamKind";
-        case EnvelopeStatus::MalformedData:     return "MalformedData";
+[[nodiscard]] constexpr std::string_view status_to_string(EnvelopeStatus status) noexcept {
+    switch (status) {
+        case EnvelopeStatus::Success:             return "Success";
+        case EnvelopeStatus::EmptyInput:          return "EmptyInput";
+        case EnvelopeStatus::MissingStreamKey:    return "MissingStreamKey";
+        case EnvelopeStatus::MissingAtSeparator:  return "MissingAtSeparator";
+        case EnvelopeStatus::UnknownStreamSuffix: return "UnknownStreamSuffix";
+        case EnvelopeStatus::SymbolTooLong:       return "SymbolTooLong";
+        case EnvelopeStatus::MissingDataKey:      return "MissingDataKey";
+        case EnvelopeStatus::MalformedBraces:     return "MalformedBraces";
     }
-    return "UnknownStatus";
+    return "Unknown";
 }
 
-struct ParsedEnvelope {
+struct EnvelopeResult {
     EnvelopeStatus status{EnvelopeStatus::EmptyInput};
-    StreamKind stream_kind{StreamKind::Unknown};
-    char symbol_buf[16]{};
-    size_t symbol_len{0};
+    binance::StreamKind stream_kind{binance::StreamKind::Unknown};
+    std::array<char, 16> symbol{};
+    uint8_t symbol_len{0};
     std::string_view data_slice{};
 
-    [[nodiscard]] std::string_view symbol() const noexcept {
-        return std::string_view(symbol_buf, symbol_len);
+    [[nodiscard]] std::string_view symbol_view() const noexcept {
+        return std::string_view(symbol.data(), symbol_len);
     }
 
-    [[nodiscard]] bool is_ok() const noexcept {
-        return status == EnvelopeStatus::Ok;
+    [[nodiscard]] bool ok() const noexcept {
+        return status == EnvelopeStatus::Success;
     }
 };
 
 /**
- * @brief High-speed zero-allocation Binance combined-stream envelope parser.
+ * @brief Parses Binance combined stream envelope without JSON AST allocations.
  * 
- * Given raw JSON such as: {"stream":"btcusdt@trade","data":{"e":"trade",...}}
  * Extracts:
- * 1. Stream kind (DepthDiff, Depth5, Trade) from stream name suffix.
- * 2. Symbol converted to uppercase in a fixed stack buffer (e.g. "BTCUSDT").
- * 3. Exact raw data object slice as a std::string_view (e.g. {"e":"trade",...}).
+ * - Stream kind: determined by stream suffix (depth@100ms -> DepthDiff, depth5@100ms -> Depth5, trade -> Trade)
+ * - Symbol: converted to uppercase in fixed buffer (no allocation)
+ * - Data slice: exact string_view of the inner Binance "data" JSON payload object
  * 
- * Zero heap allocations, noexceptions, no full JSON DOM parse.
- * Returns error enum for all malformed cases (counted, zero UB).
+ * @param raw_msg Raw WebSocket text message.
+ * @return EnvelopeResult containing parsed components or specific error code.
  */
-[[nodiscard]] ParsedEnvelope parse_envelope(std::string_view raw_msg) noexcept;
+[[nodiscard]] EnvelopeResult parse_envelope(std::string_view raw_msg) noexcept;
 
 } // namespace lob
