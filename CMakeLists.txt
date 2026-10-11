@@ -63,11 +63,15 @@ add_library(lobcore STATIC
     src/decimal.cpp
     src/csv.cpp
     src/envelope.cpp
+    src/lob.cpp
 )
 target_include_directories(lobcore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+if(TARGET simdjson)
+    target_link_libraries(lobcore PUBLIC simdjson)
+endif()
 
 # Unit tests target (plain asserts, zero external network dependency)
 add_executable(unit_tests

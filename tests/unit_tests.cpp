@@ -1,6 +1,7 @@
 #include "../src/decimal.hpp"
 #include "../src/csv.hpp"
 #include "../src/envelope.hpp"
+#include "../src/lob.hpp"
 #include <iostream>
 #include <cassert>
 #include <cstring>
@@ -374,6 +375,106 @@ void run_envelope_tests() {
                "55: quote-aware brace matching inside data payload");
 }
 
+void run_lob_tests() {
+    OrderBook ob;
+
+    // 56. Order of levels (bids descending, asks ascending)
+    std::vector<LevelUpdate> bids1 = {{10000000000LL, 100000000LL}, {10500000000LL, 200000000LL}, {9500000000LL, 300000000LL}};
+    std::vector<LevelUpdate> asks1 = {{11000000000LL, 150000000LL}, {10800000000LL, 250000000LL}, {11500000000LL, 350000000LL}};
+    ob.apply_diff(bids1, asks1);
+    TEST_CHECK(ob.best_bid() == 10500000000LL && ob.best_ask() == 10800000000LL,
+               "56: best bid (descending) and best ask (ascending) order");
+
+    // 57. Top-5 extraction and zero-padding
+    BookSnapshot snap = ob.top5();
+    TEST_CHECK(snap.bid_prices[0] == 10500000000LL && snap.bid_prices[1] == 10000000000LL &&
+               snap.bid_prices[2] == 9500000000LL && snap.bid_prices[3] == 0 && snap.bid_prices[4] == 0 &&
+               snap.bid_sizes[0] == 200000000LL && snap.bid_sizes[3] == 0,
+               "57: top-5 bid prices and sizes with zero padding");
+
+    TEST_CHECK(snap.ask_prices[0] == 10800000000LL && snap.ask_prices[1] == 11000000000LL &&
+               snap.ask_prices[2] == 11500000000LL && snap.ask_prices[3] == 0 &&
+               snap.ask_sizes[0] == 250000000LL && snap.ask_sizes[3] == 0,
+               "58: top-5 ask prices and sizes with zero padding");
+
+    // 59. Level replacement
+    std::vector<LevelUpdate> rep_bids = {{10000000000LL, 500000000LL}};
+    ob.apply_diff(rep_bids, {});
+    snap = ob.top5();
+    TEST_CHECK(snap.bid_sizes[1] == 500000000LL,
+               "59: level replacement updates existing quantity");
+
+    // 60. Level removal (qty == 0)
+    std::vector<LevelUpdate> rem_bids = {{10000000000LL, 0LL}};
+    ob.apply_diff(rem_bids, {});
+    TEST_CHECK(ob.bid_depth() == 2 && ob.bids().find(10000000000LL) == ob.bids().end(),
+               "60: qty 0 removes price level from order book");
+
+    // 61. Crossed book detection
+    TEST_CHECK(!ob.crossed(), "61: normal book is uncrossed (best_bid < best_ask)");
+    std::vector<LevelUpdate> cross_bid = {{10900000000LL, 100000000LL}};
+    ob.apply_diff(cross_bid, {});
+    TEST_CHECK(ob.crossed(), "62: crossed book detected (best_bid >= best_ask)");
+
+    // Restore uncrossed state
+    ob.apply_diff({{10900000000LL, 0LL}}, {});
+    TEST_CHECK(!ob.crossed(), "63: uncrossed restored after level removal");
+
+    // 64. Depth5 re-anchor
+    // Current bids: 105 (qty 200M), 95 (qty 300M).
+    // Add 104 (qty 50M), 102 (qty 50M).
+    ob.apply_diff({{10400000000LL, 50000000LL}, {10200000000LL, 50000000LL}}, {});
+    // Now bids: 105, 104, 102, 95.
+    // Replace top from depth5 with bids: 105 (new qty 1B), 103 (qty 2B) -> worst is 103.
+    // Every level >= 103 (105, 104) should be erased, and 105 (1B), 103 (2B) inserted.
+    // 102 and 95 (< 103) should remain!
+    std::vector<LevelUpdate> d5_bids = {{10500000000LL, 1000000000LL}, {10300000000LL, 2000000000LL}};
+    ob.replace_top5_from_depth5(d5_bids, {});
+    TEST_CHECK(ob.is_anchored(), "64: order book anchored by depth5");
+    TEST_CHECK(ob.bids().find(10400000000LL) == ob.bids().end(),
+               "65: depth5 re-anchor erased stale level 104 (>= worst depth5)");
+    TEST_CHECK(ob.bids().find(10200000000LL) != ob.bids().end() &&
+               ob.bids().find(9500000000LL) != ob.bids().end(),
+               "66: depth5 re-anchor preserved deeper levels (< worst depth5)");
+
+    // 67. Clear book
+    ob.clear();
+    TEST_CHECK(ob.bid_depth() == 0 && ob.ask_depth() == 0 && !ob.is_anchored() && ob.best_bid() == 0,
+               "67: clear() resets order book completely");
+
+    // 68. JsonPayloadParser diff parsing
+    JsonPayloadParser parser;
+    const std::string_view diff_payload =
+        "{\"e\":\"depthUpdate\",\"E\":1791722412814,\"s\":\"BTCUSDT\",\"U\":101279355763,\"u\":101279355790,\"b\":[[\"83133.69000000\",\"0.31508000\"],[\"83131.18000000\",\"0.00000000\"]],\"a\":[[\"83156.48000000\",\"0.06012000\"]]}";
+    DiffPayload dp;
+    TEST_CHECK(parser.parse_diff(diff_payload, dp),
+               "68: JsonPayloadParser parse_diff succeeds");
+    TEST_CHECK(dp.U == 101279355763ULL && dp.u == 101279355790ULL && dp.bids.size() == 2 &&
+               dp.bids[0].price == 8313369000000LL && dp.bids[0].qty == 31508000LL &&
+               dp.bids[1].qty == 0LL,
+               "69: JsonPayloadParser extracted scaled diff updates accurately");
+
+    // 70. JsonPayloadParser depth5 parsing
+    const std::string_view depth5_payload =
+        "{\"lastUpdateId\":101279355790,\"bids\":[[\"83144.00000000\",\"0.24177000\"],[\"83143.99000000\",\"0.00056000\"],[\"83143.80000000\",\"0.00007000\"],[\"83143.63000000\",\"0.00601000\"],[\"83143.57000000\",\"0.00008000\"]],\"asks\":[[\"83144.01000000\",\"12.05520000\"],[\"83144.04000000\",\"0.00200000\"],[\"83144.05000000\",\"0.05007000\"],[\"83144.10000000\",\"0.05000000\"],[\"83144.36000000\",\"0.00400000\"]]}";
+    Depth5Payload d5p;
+    TEST_CHECK(parser.parse_depth5(depth5_payload, d5p),
+               "70: JsonPayloadParser parse_depth5 succeeds");
+    TEST_CHECK(d5p.last_update_id == 101279355790ULL && d5p.bids.size() == 5 && d5p.asks.size() == 5 &&
+               d5p.bids[0].price == 8314400000000LL && d5p.asks[0].price == 8314401000000LL,
+               "71: JsonPayloadParser extracted 5 bids and 5 asks for depth5 snapshot");
+
+    // 72. JsonPayloadParser trade parsing
+    const std::string_view trade_payload =
+        "{\"e\":\"trade\",\"E\":1791722413645,\"s\":\"BTCUSDT\",\"t\":6752803196,\"p\":\"83144.00000000\",\"q\":\"0.00197000\",\"T\":1791722413645,\"m\":true,\"M\":true}";
+    TradePayload tp;
+    TEST_CHECK(parser.parse_trade(trade_payload, tp),
+               "72: JsonPayloadParser parse_trade succeeds");
+    TEST_CHECK(tp.trade_id == 6752803196ULL && tp.price == 8314400000000LL &&
+               tp.qty == 197000LL && tp.is_buyer_maker == true,
+               "73: JsonPayloadParser extracted trade price, size, and maker side");
+}
+
 int main() {
     std::cout << "Running Binance LOB capture unit tests...\n";
 
@@ -383,6 +484,7 @@ int main() {
     run_csv_header_tests();
     run_formatting_and_buffered_file_tests();
     run_envelope_tests();
+    run_lob_tests();
 
     std::cout << "Tests completed. Passed: " << g_tests_passed
               << ", Failed: " << g_tests_failed << "\n";
