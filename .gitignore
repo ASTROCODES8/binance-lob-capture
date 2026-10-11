@@ -18,6 +18,8 @@ out/
 # Output CSV files and logs
 *.csv
 output/
+output_*/
+verify_*/
 logs/
 
 # Allow tracked samples and fixtures
