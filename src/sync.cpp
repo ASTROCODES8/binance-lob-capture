@@ -14,11 +14,16 @@ void SymbolSyncStateMachine::reset() noexcept {
 }
 
 SyncAction SymbolSyncStateMachine::on_depth5(uint64_t last_update_id) noexcept {
-    last_update_id_ = last_update_id;
-    first_diff_after_snapshot_ = true;
-    prev_u_ = last_update_id;
-    state_ = SyncState::Synced;
-    ++counters_.resyncs;
+    if (state_ != SyncState::Synced) {
+        last_update_id_ = last_update_id;
+        first_diff_after_snapshot_ = true;
+        prev_u_ = last_update_id;
+        state_ = SyncState::Synced;
+        ++counters_.resyncs;
+    } else if (first_diff_after_snapshot_) {
+        last_update_id_ = last_update_id;
+        prev_u_ = last_update_id;
+    }
     return SyncAction::Apply;
 }
 

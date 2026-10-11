@@ -3,7 +3,11 @@
 #include "../src/envelope.hpp"
 #include "../src/lob.hpp"
 #include "../src/sync.hpp"
+#include "../src/processor.hpp"
+#include "../src/replay.hpp"
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <cassert>
 #include <cstring>
 #include <string>
@@ -572,6 +576,219 @@ void run_sync_tests() {
                "94: USD-M diff with mismatched pu detected and triggers Resync");
 }
 
+void run_processor_fixture_tests() {
+    std::string fixture_path = "fixtures/raw_spot_btcusdt.txt";
+    if (!std::filesystem::exists(fixture_path)) {
+        fixture_path = "../fixtures/raw_spot_btcusdt.txt";
+    }
+    if (!std::filesystem::exists(fixture_path)) {
+        fixture_path = "../../fixtures/raw_spot_btcusdt.txt";
+    }
+    TEST_CHECK(std::filesystem::exists(fixture_path),
+               "95: fixture raw_spot_btcusdt.txt exists");
+
+    std::filesystem::create_directories("output");
+
+    Processor proc("output", {"BTCUSDT"}, binance::Venue::Spot);
+
+    std::ifstream file(fixture_path);
+    TEST_CHECK(file.is_open(), "96: opened fixture raw_spot_btcusdt.txt");
+
+    std::string line;
+    uint64_t msg_count = 0;
+    const int64_t base_recv_ns = 1736985600000000000LL; // 2025-01-16 00:00:00 UTC
+
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        int64_t recv_ns = base_recv_ns + static_cast<int64_t>(msg_count) * 100'000'000LL;
+        proc.on_message(line, recv_ns, 1, 0, msg_count + 1);
+        msg_count++;
+    }
+
+    proc.flush();
+    proc.close();
+
+    const auto& metrics = proc.metrics();
+
+    TEST_CHECK(metrics.msgs_processed.load() == msg_count && msg_count == 300,
+               "97: processor processed all 300 fixture messages");
+    TEST_CHECK(metrics.parse_errors.load() == 0,
+               "98: zero parse errors encountered on real Binance traffic");
+    TEST_CHECK(metrics.rows_written.load() > 0,
+               "99: market data and orderbook rows written successfully");
+    TEST_CHECK(metrics.latency.count() == msg_count,
+               "100: latency histogram recorded for every message");
+    TEST_CHECK(metrics.latency.max_ns() > 0,
+               "101: latency max_ns recorded and positive");
+    TEST_CHECK(metrics.latency.p50_ns() > 0,
+               "102: latency p50_ns calculated successfully");
+    TEST_CHECK(metrics.latency.p99_ns() > 0,
+               "103: latency p99_ns calculated successfully");
+
+    std::string md_file_path = "output/market_data_spot_BTCUSDT_2025-01-16.csv";
+    std::string ob_file_path = "output/market_data_spot_BTCUSDT_2025-01-16_orderbook.csv";
+
+    TEST_CHECK(std::filesystem::exists(md_file_path),
+               "104: market_data CSV created on disk");
+    TEST_CHECK(std::filesystem::exists(ob_file_path),
+               "105: orderbook CSV created on disk");
+
+    std::ifstream ob_file(ob_file_path);
+    TEST_CHECK(ob_file.is_open(), "106: orderbook CSV opened for inspection");
+
+    std::string ob_header_line;
+    std::string ob_row2_line;
+    if (std::getline(ob_file, ob_header_line) && std::getline(ob_file, ob_row2_line)) {
+        if (!ob_header_line.empty() && ob_header_line.back() == '\r') ob_header_line.pop_back();
+        if (!ob_row2_line.empty() && ob_row2_line.back() == '\r') ob_row2_line.pop_back();
+
+        size_t h_cols = count_csv_columns(ob_header_line);
+        size_t r2_cols = count_csv_columns(ob_row2_line);
+
+        TEST_CHECK(h_cols == 26, "107: orderbook CSV header has exactly 26 columns");
+        TEST_CHECK(r2_cols == 26, "108: orderbook CSV row 2 has exactly 26 columns");
+
+        std::stringstream ss(ob_row2_line);
+        std::string tsec_str, tnsec_str, seq_str, id_str, type_str, side_str;
+        std::getline(ss, tsec_str, ',');
+        std::getline(ss, tnsec_str, ',');
+        std::getline(ss, seq_str, ',');
+        std::getline(ss, id_str, ',');
+        std::getline(ss, type_str, ',');
+        std::getline(ss, side_str, ',');
+
+        TEST_CHECK(tsec_str == "1736985600", "109: row 2 tsec matches start epoch");
+        TEST_CHECK(tnsec_str == "0", "110: row 2 tnsec matches start epoch");
+        TEST_CHECK(seq_str == "1", "111: row 2 seqNo initialized to 1");
+        TEST_CHECK(id_str == "1", "112: row 2 id initialized to 1 for BTCUSDT");
+        TEST_CHECK(type_str == "S", "113: row 2 type is 'S' (initial snapshot)");
+        TEST_CHECK(side_str == "N", "114: row 2 side is 'N' (depth snapshot)");
+    } else {
+        TEST_CHECK(false, "Failed to read header or row 2 from orderbook CSV");
+    }
+
+    std::ifstream md_file(md_file_path);
+    std::string md_header_line, md_row2_line;
+    if (std::getline(md_file, md_header_line) && std::getline(md_file, md_row2_line)) {
+        if (!md_header_line.empty() && md_header_line.back() == '\r') md_header_line.pop_back();
+        if (!md_row2_line.empty() && md_row2_line.back() == '\r') md_row2_line.pop_back();
+
+        size_t md_cols = count_csv_columns(md_row2_line);
+        TEST_CHECK(md_cols == 9, "115: market data CSV row 2 has exactly 9 columns");
+    }
+}
+
+void run_replay_golden_tests() {
+    std::string md_path = "output/market_data_spot_BTCUSDT_2025-01-16.csv";
+    if (!std::filesystem::exists(md_path)) {
+        md_path = "../output/market_data_spot_BTCUSDT_2025-01-16.csv";
+    }
+    TEST_CHECK(std::filesystem::exists(md_path), "116: input market_data CSV for replay exists");
+
+    // 1. Replay run 1
+    std::filesystem::create_directories("output_replay1");
+    ReplayConfig cfg1;
+    cfg1.csv_path = md_path;
+    cfg1.output_dir = "output_replay1";
+    cfg1.symbols = {"BTCUSDT"};
+    cfg1.venue = binance::Venue::Spot;
+    cfg1.bench = true;
+
+    Processor proc1("output_replay1", {"BTCUSDT"}, binance::Venue::Spot, true /* is_replay */);
+    BenchmarkStats stats1 = run_replay(cfg1, proc1);
+
+    TEST_CHECK(stats1.total_messages == 300, "117: replay read exactly 300 messages");
+    TEST_CHECK(stats1.total_errors == 0, "118: replay completed with zero parse errors");
+    TEST_CHECK(stats1.rows_written > 0, "119: replay generated orderbook rows");
+    TEST_CHECK(stats1.msgs_per_sec > 0.0, "120: replay throughput benchmark calculated");
+    TEST_CHECK(stats1.p50_ns > 0, "121: replay p50 latency calculated");
+
+    // 2. Replay run 2 into output_replay2 to verify 100% determinism
+    std::filesystem::create_directories("output_replay2");
+    ReplayConfig cfg2;
+    cfg2.csv_path = md_path;
+    cfg2.output_dir = "output_replay2";
+    cfg2.symbols = {"BTCUSDT"};
+    cfg2.venue = binance::Venue::Spot;
+    cfg2.bench = false;
+
+    Processor proc2("output_replay2", {"BTCUSDT"}, binance::Venue::Spot, true /* is_replay */);
+    BenchmarkStats stats2 = run_replay(cfg2, proc2);
+
+    TEST_CHECK(stats1.rows_written == stats2.rows_written,
+               "122: replay row counts identical between runs");
+
+    // Compare generated files byte-for-byte
+    std::string ob_path1 = "output_replay1/market_data_spot_BTCUSDT_2025-01-16_orderbook.csv";
+    std::string ob_path2 = "output_replay2/market_data_spot_BTCUSDT_2025-01-16_orderbook.csv";
+    TEST_CHECK(std::filesystem::exists(ob_path1), "123: replay 1 orderbook CSV exists");
+    TEST_CHECK(std::filesystem::exists(ob_path2), "124: replay 2 orderbook CSV exists");
+
+    std::ifstream f1(ob_path1, std::ios::binary);
+    std::ifstream f2(ob_path2, std::ios::binary);
+    bool identical = true;
+    size_t bytes_compared = 0;
+    while (f1 && f2) {
+        char c1 = 0, c2 = 0;
+        f1.get(c1);
+        f2.get(c2);
+        if (f1 && f2) {
+            bytes_compared++;
+            if (c1 != c2) {
+                identical = false;
+                break;
+            }
+        }
+    }
+    TEST_CHECK(identical && bytes_compared > 0 && f1.eof() && f2.eof(),
+               "125: replay 1 and replay 2 outputs are 100% byte-for-byte identical");
+
+    // 3. Compare with live run orderbook output
+    std::string live_ob = "output/market_data_spot_BTCUSDT_2025-01-16_orderbook.csv";
+    if (std::filesystem::exists(live_ob)) {
+        std::ifstream f_live(live_ob, std::ios::binary);
+        std::ifstream f_rep(ob_path1, std::ios::binary);
+        bool live_match = true;
+        while (f_live && f_rep) {
+            char cl = 0, cr = 0;
+            f_live.get(cl);
+            f_rep.get(cr);
+            if (f_live && f_rep) {
+                if (cl != cr) {
+                    live_match = false;
+                    break;
+                }
+            }
+        }
+        TEST_CHECK(live_match && f_live.eof() && f_rep.eof(),
+                   "126: replay orderbook matches live capture orderbook byte-for-byte");
+    }
+
+    // 4. Golden file check if samples/golden_orderbook_spot_BTCUSDT.csv exists
+    std::string golden_path = "samples/golden_orderbook_spot_BTCUSDT.csv";
+    if (!std::filesystem::exists(golden_path)) {
+        golden_path = "../samples/golden_orderbook_spot_BTCUSDT.csv";
+    }
+    if (std::filesystem::exists(golden_path)) {
+        std::ifstream f_gold(golden_path, std::ios::binary);
+        std::ifstream f_rep(ob_path1, std::ios::binary);
+        bool golden_match = true;
+        while (f_gold && f_rep) {
+            char cg = 0, cr = 0;
+            f_gold.get(cg);
+            f_rep.get(cr);
+            if (f_gold && f_rep) {
+                if (cg != cr) {
+                    golden_match = false;
+                    break;
+                }
+            }
+        }
+        TEST_CHECK(golden_match && f_gold.eof() && f_rep.eof(),
+                   "127: replay output matches committed golden file");
+    }
+}
+
 int main() {
     std::cout << "Running Binance LOB capture unit tests...\n";
 
@@ -583,6 +800,8 @@ int main() {
     run_envelope_tests();
     run_lob_tests();
     run_sync_tests();
+    run_processor_fixture_tests();
+    run_replay_golden_tests();
 
     std::cout << "Tests completed. Passed: " << g_tests_passed
               << ", Failed: " << g_tests_failed << "\n";

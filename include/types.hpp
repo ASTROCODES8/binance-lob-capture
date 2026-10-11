@@ -22,6 +22,11 @@ enum class Venue : uint8_t {
     return "unknown";
 }
 
+[[nodiscard]] constexpr Venue string_to_venue(std::string_view s) noexcept {
+    if (s == "usdm" || s == "USDM") return Venue::Usdm;
+    return Venue::Spot;
+}
+
 // Inbound stream kinds
 enum class StreamKind : uint8_t {
     DepthDiff,
@@ -37,6 +42,13 @@ enum class StreamKind : uint8_t {
         case StreamKind::Trade:     return "trade";
         default:                    return "unknown";
     }
+}
+
+[[nodiscard]] constexpr StreamKind string_to_stream_kind(std::string_view s) noexcept {
+    if (s == "depth_diff") return StreamKind::DepthDiff;
+    if (s == "depth5")     return StreamKind::Depth5;
+    if (s == "trade")      return StreamKind::Trade;
+    return StreamKind::Unknown;
 }
 
 // Side representation according to Deliverable B:

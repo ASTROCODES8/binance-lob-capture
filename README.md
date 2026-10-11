@@ -11,7 +11,24 @@ The application connects to Binance combined WebSocket market data streams, reco
 ### Threading & Concurrency Model
 - **NET Thread**: Asynchronous I/O powered by Boost.Asio and Boost.Beast TLS. Reads frames from the socket, takes a wall-clock nanosecond timestamp immediately upon read completion, slices the JSON envelope (`"stream"` and `"data"`), and enqueues messages into a lock-free Single-Producer Single-Consumer (SPSC) ring buffer. Zero locks or file operations on this thread.
 - **PROCESSOR Thread**: Single consumer thread owning the Local Order Book (LOB) state, sequence validators, and CSV writers. Pops raw records from the SPSC ring, parses payloads on-demand via `simdjson`, updates book levels, and streams output via 1 MB buffered file writers.
-- **Replay Mode**: The exact same `Processor` class processes offline raw market data CSVs, guaranteeing byte-identical order book output without network interaction.
+- **Offline Replay Mode (`--replay`)**: Reads an existing `market_data_*.csv` file via a dedicated zero-allocation RFC 4180 parser and feeds the exact same `Processor` instance. There is strictly **zero network code or socket interaction on this path**. Guarantees 100% deterministic, byte-identical order book output. Limits: maximum 20 symbols, maximum 64 KB message size.
+
+---
+
+### Command Line Interface (CLI)
+```text
+Usage: binance_capture [OPTIONS]
+
+Options:
+  --venue <spot|usdm>        Target exchange venue (default: spot)
+  --symbols <sym1,sym2,...>  Comma-separated symbols (e.g. BTCUSDT, max 20)
+  --output-dir <path>        Directory to store output CSV files (default: output)
+  --duration <seconds>       Capture/replay duration in seconds (0 = unlimited)
+  --replay <path>            Replay market data CSV without network access
+  --bench                    Replay at maximum speed and output performance metrics
+  --host <hostname>          WebSocket host override (default: data-stream.binance.vision)
+  --help, -h                 Display help message
+```
 
 ---
 
