@@ -226,10 +226,10 @@ def main():
     if args.dir:
         for fname in os.listdir(args.dir):
             full_path = os.path.join(args.dir, fname)
-            if fname.endswith("_orderbook.csv"):
+            if fname.endswith(".csv") and ("orderbook" in fname):
                 if not check_orderbook(full_path):
                     success = False
-            elif fname.endswith(".csv") and fname.startswith("market_data_"):
+            elif fname.endswith(".csv") and ("market_data" in fname):
                 if not check_market_data(full_path):
                     success = False
         sys.exit(0 if success else 1)

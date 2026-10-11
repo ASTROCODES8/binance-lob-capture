@@ -169,8 +169,8 @@ function Check-OrderbookFile([string]$path) {
 }
 
 if ($Directory -ne "") {
-    Get-ChildItem -Path $Directory -Filter "*_orderbook.csv" | ForEach-Object { Check-OrderbookFile $_.FullName }
-    Get-ChildItem -Path $Directory -Filter "market_data_*.csv" | Where-Object { $_.Name -notlike "*_orderbook.csv" } | ForEach-Object { Check-MarketDataFile $_.FullName }
+    Get-ChildItem -Path $Directory -Filter "*orderbook*.csv" | ForEach-Object { Check-OrderbookFile $_.FullName }
+    Get-ChildItem -Path $Directory -Filter "*market_data*.csv" | Where-Object { $_.Name -notlike "*orderbook*" } | ForEach-Object { Check-MarketDataFile $_.FullName }
 } elseif ($MarketDataFile -ne "") {
     Check-MarketDataFile $MarketDataFile
 } elseif ($OrderbookFile -ne "") {

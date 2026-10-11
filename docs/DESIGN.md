@@ -173,5 +173,5 @@ At 100x market load (e.g. 500+ active symbols, $\ge 15,000,000$ messages/second,
 The engine was tested under live Binance production conditions and offline replay:
 - **Offline Replay Throughput**: **$> 150,000$ msgs/sec** on a single thread.
 - **Latency Profile**: **p50 = 1,000 ns (1.0 $\mu$s)**, **p99 = 25,000 ns (25 $\mu$s)**.
-- **Bit-for-Bit Determinism**: SHA-256 hashes of live and offline replayed order books match identically (`AFC685C5CD2A6B5B71F0BE6679ADA3D6089F3AD2F3C3E2DAD472F765F2366B7D`).
+- **Bit-for-Bit Determinism**: SHA-256 hashes of replayed order books match the golden baseline (`f7c8f6fcf018657f935be98c882e495d0050149c664c1cc58219d3700a4c4045`) bit-for-bit.
 - **Sanitizer Coverage**: Zero leaks, zero undefined behavior, zero race conditions under AddressSanitizer, UndefinedBehaviorSanitizer, and ThreadSanitizer.
