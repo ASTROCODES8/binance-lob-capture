@@ -415,33 +415,4 @@ For an in-depth analysis of container trade-offs (`std::map` vs. flat vector), l
 
 ---
 
-## 13. How to Submit on GitHub
 
-### 1. Initialize and Push Your Repository
-```bash
-git init
-git add .
-git commit -m "Initial submission: Binance WebSocket capture and LOB engine"
-git remote add origin https://github.com/ASTROCODES8/binance-lob-capture.git
-git branch -M main
-git push -u origin main
-```
-
-### 2. Ensure `.gitignore` Excludes Build Artifacts and Secrets
-Ensure `.gitignore` contains build directories and excludes credentials:
-```text
-build/
-*.csv
-*.o
-*.a
-*.so
-.env
-config/secrets.json
-```
-*Never commit API keys, private keys, or credentials.*
-
-### 3. Tag Your Submission
-```bash
-git tag -a v1.0.1 -m "Submission v1.0.1"
-git push origin v1.0.1
-```
