@@ -55,8 +55,21 @@ endif()
 
 # Boost and OpenSSL dependencies
 find_package(Threads REQUIRED)
+if(NOT OPENSSL_ROOT_DIR AND EXISTS "C:/Program Files/OpenSSL-Win64")
+    set(OPENSSL_ROOT_DIR "C:/Program Files/OpenSSL-Win64")
+    set(OPENSSL_INCLUDE_DIR "C:/Program Files/OpenSSL-Win64/include")
+    if(EXISTS "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MD/libssl.lib")
+        set(OPENSSL_CRYPTO_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MD/libcrypto.lib")
+        set(OPENSSL_SSL_LIBRARY "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MD/libssl.lib")
+    endif()
+endif()
 find_package(OpenSSL QUIET)
 find_package(Boost QUIET COMPONENTS system)
+
+if(NOT Boost_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include/boost/beast.hpp")
+    message(STATUS "Found Boost headers in local vcpkg_installed directory")
+    set(Boost_FOUND TRUE)
+endif()
 
 # Static core library: lobcore
 add_library(lobcore STATIC
@@ -67,11 +80,15 @@ add_library(lobcore STATIC
     src/sync.cpp
     src/processor.cpp
     src/replay.cpp
+    src/net.cpp
 )
 target_include_directories(lobcore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+    target_include_directories(lobcore PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/x64-windows/include")
+endif()
 if(TARGET simdjson)
     target_link_libraries(lobcore PUBLIC simdjson)
 endif()
@@ -101,13 +118,17 @@ if(TARGET simdjson)
 endif()
 
 if(OpenSSL_FOUND AND Boost_FOUND)
-    target_link_libraries(binance_capture PRIVATE
-        Boost::system
+    target_compile_definitions(lobcore PUBLIC HAVE_BOOST_BEAST=1)
+    if(TARGET Boost::system)
+        target_link_libraries(lobcore PUBLIC Boost::system)
+    endif()
+    target_link_libraries(lobcore PUBLIC
         OpenSSL::SSL
         OpenSSL::Crypto
     )
 endif()
 
 if(WIN32)
+    target_link_libraries(lobcore PUBLIC ws2_32 mswsock crypt32)
     target_link_libraries(binance_capture PRIVATE ws2_32 mswsock crypt32)
 endif()

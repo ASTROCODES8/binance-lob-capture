@@ -119,7 +119,7 @@ cmake --build build --config Release
 
 ### Running Tests
 ```powershell
-# Run full unit test suite (156 test cases)
+# Run full unit test suite (159 test cases)
 .\build\Release\unit_tests.exe
 
 # Run 10M message lock-free SPSC ring stress test

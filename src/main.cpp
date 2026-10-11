@@ -1,5 +1,8 @@
 #include "replay.hpp"
 #include "processor.hpp"
+#include "net.hpp"
+#include "spsc_ring.hpp"
+#include "shutdown.hpp"
 #include "types.hpp"
 #include <iostream>
 #include <string>
@@ -7,6 +10,8 @@
 #include <sstream>
 #include <filesystem>
 #include <iomanip>
+#include <thread>
+#include <chrono>
 
 namespace {
 
@@ -142,8 +147,11 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // Live Capture Mode (placeholder for Task 9 Network Thread integration)
-    std::cout << "Starting Binance LOB Capture...\n"
+    // Live Capture Mode (Multi-Threaded: NET Thread + PROCESSOR Thread)
+    lob::install_signal_handler();
+    std::filesystem::create_directories(output_dir);
+
+    std::cout << "Starting Binance LOB Live Capture Engine...\n"
               << "Venue:      " << binance::venue_to_string(venue) << "\n"
               << "Host:       " << host << "\n"
               << "Symbols ("  << symbols.size() << "): ";
@@ -151,8 +159,89 @@ int main(int argc, char* argv[]) {
         std::cout << symbols[i] << (i + 1 < symbols.size() ? ", " : "\n");
     }
     std::cout << "Output Dir: " << output_dir << "\n"
-              << "Duration:   " << (duration_sec == 0 ? "Unlimited" : std::to_string(duration_sec) + "s") << "\n"
-              << "Note: Network client loop connects in Task 9. Use --replay <market_data.csv> for offline replay.\n";
+              << "Duration:   " << (duration_sec == 0 ? "Unlimited (Press Ctrl+C to stop)" : std::to_string(duration_sec) + "s") << "\n\n";
+
+    auto ring = std::make_unique<lob::SpscRingBuffer<lob::RingSlot, 2048>>();
+    lob::Processor processor(output_dir, symbols, venue, false /* live capture */);
+
+    lob::NetClientConfig net_config;
+    net_config.venue = venue;
+    net_config.host = host;
+    net_config.port = "9443";
+    net_config.symbols = symbols;
+    net_config.shard_id = 1;
+
+    lob::NetClient net_client(net_config, *ring, processor);
+
+    // Optional duration watchdog timer
+    std::thread timer_thread;
+    if (duration_sec > 0) {
+        timer_thread = std::thread([duration_sec]() {
+            auto start_time = std::chrono::steady_clock::now();
+            while (!lob::is_stop_requested()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - start_time).count();
+                if (elapsed >= static_cast<int64_t>(duration_sec)) {
+                    std::cout << "\n[MAIN] Duration limit (" << duration_sec << "s) reached. Stopping capture...\n";
+                    lob::request_stop();
+                    break;
+                }
+            }
+        });
+    }
+
+    // 1. Launch NET Thread
+    std::thread net_thread([&net_client]() {
+        net_client.run();
+    });
+
+    // 2. Launch PROCESSOR Thread
+    std::thread proc_thread([&ring, &processor]() {
+        while (!lob::is_stop_requested() || !ring->empty()) {
+            if (ring->check_and_clear_gap()) {
+                processor.on_ring_overflow();
+            }
+
+            const lob::RingSlot* slot = ring->peek();
+            if (slot) {
+                std::string_view raw(slot->data, slot->len);
+                processor.on_message(raw, slot->recv_ns, slot->shard, slot->epoch, slot->seq);
+                ring->pop();
+            } else {
+                #if defined(_MSC_VER)
+                _mm_pause();
+                #elif defined(__x86_64__) || defined(_M_X64)
+                __builtin_ia32_pause();
+                #endif
+            }
+        }
+    });
+
+    // Wait for shutdown signal (Ctrl+C or timer)
+    if (timer_thread.joinable()) timer_thread.join();
+    if (net_thread.joinable()) net_thread.join();
+    if (proc_thread.joinable()) proc_thread.join();
+
+    std::cout << "\n[MAIN] Performing final buffer flush...\n";
+    processor.flush();
+    processor.close();
+
+    const auto& m = processor.metrics();
+    const auto& nm = net_client.metrics();
+    std::cout << "\n================= SESSION SUMMARY =================\n"
+              << "Network Messages Received: " << nm.messages_received.load() << "\n"
+              << "Network Bytes Received:    " << nm.bytes_received.load() << "\n"
+              << "Network Reconnects:        " << nm.reconnects.load() << "\n"
+              << "Oversized Frame Drops:     " << nm.oversized_drops.load() << "\n"
+              << "Ring Overflow Drops:       " << nm.ring_overflow_drops.load() << "\n"
+              << "Processor Rows Written:    " << m.rows_written.load() << "\n"
+              << "Parse Errors:              " << m.parse_errors.load() << "\n"
+              << "Sequence Gaps:             " << m.gaps.load() << "\n"
+              << "p50 Processing Latency:    " << m.latency.p50_ns() << " ns\n"
+              << "p99 Processing Latency:    " << m.latency.p99_ns() << " ns\n"
+              << "Max Processing Latency:    " << m.latency.max_ns() << " ns\n"
+              << "===================================================\n";
 
     return 0;
 }

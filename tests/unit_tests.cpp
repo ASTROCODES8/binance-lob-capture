@@ -7,6 +7,7 @@
 #include "../src/replay.hpp"
 #include "../src/spsc_ring.hpp"
 #include "../src/shutdown.hpp"
+#include "../src/net.hpp"
 #include <iostream>
 #include <thread>
 #include <fstream>
@@ -880,6 +881,23 @@ void run_spsc_and_shutdown_tests() {
     TEST_CHECK(consumed.load() == THREAD_MSG_COUNT, "150: all concurrent messages consumed");
 }
 
+void run_net_client_tests() {
+    // 151. Single symbol stream path
+    std::string path1 = NetClient::build_combined_stream_path(binance::Venue::Spot, {"BTCUSDT"});
+    TEST_CHECK(path1 == "/stream?streams=btcusdt@depth@100ms/btcusdt@depth5@100ms/btcusdt@trade",
+               "151: single symbol combined stream URL path");
+
+    // 152. Multiple symbols stream path
+    std::string path2 = NetClient::build_combined_stream_path(binance::Venue::Spot, {"BTCUSDT", "ETHUSDT"});
+    TEST_CHECK(path2 == "/stream?streams=btcusdt@depth@100ms/btcusdt@depth5@100ms/btcusdt@trade/ethusdt@depth@100ms/ethusdt@depth5@100ms/ethusdt@trade",
+               "152: multiple symbols combined stream URL path");
+
+    // 153. Case normalization in URL path
+    std::string path3 = NetClient::build_combined_stream_path(binance::Venue::Spot, {"bnbusdt"});
+    TEST_CHECK(path3 == "/stream?streams=bnbusdt@depth@100ms/bnbusdt@depth5@100ms/bnbusdt@trade",
+               "153: case normalization produces lowercase stream keys");
+}
+
 int main() {
     std::cout << "Running Binance LOB capture unit tests...\n";
 
@@ -894,6 +912,7 @@ int main() {
     run_processor_fixture_tests();
     run_replay_golden_tests();
     run_spsc_and_shutdown_tests();
+    run_net_client_tests();
 
     std::cout << "Tests completed. Passed: " << g_tests_passed
               << ", Failed: " << g_tests_failed << "\n";
