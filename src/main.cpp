@@ -172,7 +172,7 @@ int main(int argc, char* argv[]) {
     net_config.host = host;
     net_config.port = (venue == binance::Venue::Usdm) ? "443" : "9443";
     net_config.symbols = symbols;
-    net_config.shard_id = 1;
+    net_config.shard_id = 0;
 
     lob::NetClient net_client(net_config, *ring, processor);
 

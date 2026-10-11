@@ -161,7 +161,7 @@ recv_tsec,recv_tnsec,venue,stream_kind,shard_id,conn_epoch,conn_seq,symbol,paylo
 | `recv_tnsec` | int32 | Nanosecond remainder in `[0, 999_999_999]` |
 | `venue` | string | Exchange venue (`spot` or `usdm`) |
 | `stream_kind` | string | Event classification: `depth_diff`, `depth5`, or `trade` |
-| `shard_id` | uint32 | Non-negative integer shard index (default `1`) |
+| `shard_id` | uint32 | Non-negative integer shard index (0 for single connection) |
 | `conn_epoch` | uint32 | Increments monotonically on each reconnect |
 | `conn_seq` | uint64 | Monotonic sequence number within `(shard_id, conn_epoch)` |
 | `symbol` | string | Uppercase ticker (e.g., `BTCUSDT`) |
@@ -190,21 +190,28 @@ tsec,tnsec,seqNo,id,type,side,bid0,bid1,bid2,bid3,bid4,bid_size0,bid_size1,bid_s
 
 ## 6. Sample Run Excerpts
 
-Excerpts from live capture on Binance Spot (`BTCUSDT`):
+Excerpts from verified live capture session on Binance Spot (`BTCUSDT`) with `shard_id = 0`, featuring snapshot (`S`), trade (`T`), and differential depth (`D`) updates:
 
-### Deliverable A (`market_data_spot_BTCUSDT_2026-10-11.csv`)
+### Deliverable A (`samples/sample_market_data_spot_BTCUSDT.csv`)
 ```csv
 recv_tsec,recv_tnsec,venue,stream_kind,shard_id,conn_epoch,conn_seq,symbol,payload_json
-1791731055,455419900,spot,trade,1,0,1,BTCUSDT,"{""e"":""trade"",""E"":1791731056238,""s"":""BTCUSDT"",""t"":6752865000,""p"":""83129.91000000"",""q"":""0.00049000"",""T"":1791731056238,""m"":true,""M"":true}"
-1791731055,530472300,spot,depth5,1,0,2,BTCUSDT,"{""lastUpdateId"":101279355790,""bids"":[[""83129.91000000"",""2.77405000""],[""83129.90000000"",""0.00083000""],[""83129.89000000"",""0.01283000""],[""83129.88000000"",""0.00060000""],[""83128.70000000"",""0.00008000""]],""asks"":[[""83129.92000000"",""5.59862000""],[""83129.93000000"",""0.00083000""],[""83129.94000000"",""0.00013000""],[""83129.95000000"",""0.00007000""],[""83129.98000000"",""0.00014000""]]}"
+1791739465,9344200,spot,trade,0,0,1,BTCUSDT,"{""e"":""trade"",""E"":1791739465600,""s"":""BTCUSDT"",""t"":6753135745,""p"":""83992.69000000"",""q"":""0.00018000"",""T"":1791739465600,""m"":false,""M"":true}"
+1791739465,22513700,spot,depth5,0,0,2,BTCUSDT,"{""lastUpdateId"":101284966359,""bids"":[[""83992.68000000"",""0.46978000""],[""83992.67000000"",""0.00033000""],[""83992.66000000"",""0.00012000""],[""83992.65000000"",""0.00118000""],[""83992.53000000"",""0.00006000""]],""asks"":[[""83992.69000000"",""4.87617000""],[""83992.70000000"",""0.00012000""],[""83992.71000000"",""0.00012000""],[""83992.81000000"",""0.03061000""],[""83993.20000000"",""0.00008000""]]}"
+1791739465,22527500,spot,depth_diff,0,0,3,BTCUSDT,"{""e"":""depthUpdate"",""E"":1791739465614,""s"":""BTCUSDT"",""U"":101284966348,""u"":101284966359,""b"":[[""83992.68000000"",""0.46978000""],[""83974.77000000"",""0.00000000""],[""83973.67000000"",""0.00238000""],[""83973.65000000"",""0.00000000""],[""83932.75000000"",""0.00000000""],[""83911.75000000"",""0.02490000""],[""83911.74000000"",""0.00000000""],[""75593.42000000"",""0.00345000""],[""75593.41000000"",""0.00008000""],[""67194.15000000"",""0.00232000""]],""a"":[[""83992.69000000"",""4.87617000""],[""84004.05000000"",""0.00000000""],[""84025.06000000"",""0.00000000""],[""84046.06000000"",""0.00000000""]]}"
 ```
 
-### Deliverable B (`market_data_spot_BTCUSDT_2026-10-11_orderbook.csv`)
+### Deliverable B (`samples/sample_orderbook_spot_BTCUSDT.csv`)
 ```csv
 tsec,tnsec,seqNo,id,type,side,bid0,bid1,bid2,bid3,bid4,bid_size0,bid_size1,bid_size2,bid_size3,bid_size4,ask0,ask1,ask2,ask3,ask4,ask_size0,ask_size1,ask_size2,ask_size3,ask_size4
-1791731055,530472300,1,1,S,N,8312991000000,8312990000000,8312989000000,8312988000000,8312870000000,277405000,83000,1283000,60000,8000,8312992000000,8312993000000,8312994000000,8312995000000,8312998000000,559862000,83000,13000,7000,14000
-1791731055,630264600,2,1,S,N,8312991000000,8312990000000,8312989000000,8312988000000,8312870000000,277405000,83000,1283000,60000,8000,8312992000000,8312993000000,8312994000000,8312995000000,8312998000000,559862000,83000,13000,7000,14000
+1791739465,22513700,1,1,S,N,8399268000000,8399267000000,8399266000000,8399265000000,8399253000000,46978000,33000,12000,118000,6000,8399269000000,8399270000000,8399271000000,8399281000000,8399320000000,487617000,12000,12000,3061000,8000
+1791739465,47247900,2,1,T,B,8399268000000,8399267000000,8399266000000,8399265000000,8399253000000,46978000,33000,12000,118000,6000,8399269000000,8399270000000,8399271000000,8399281000000,8399320000000,487617000,12000,12000,3061000,8000
+1791739465,122922000,3,1,S,N,8399268000000,8399267000000,8399266000000,8399265000000,8399253000000,46978000,33000,12000,118000,6000,8399269000000,8399270000000,8399271000000,8399281000000,8399320000000,487623000,12000,12000,3061000,8000
+1791739465,122925200,4,1,D,N,8399268000000,8399267000000,8399266000000,8399265000000,8399253000000,46978000,33000,12000,118000,6000,8399269000000,8399270000000,8399271000000,8399281000000,8399320000000,487623000,12000,12000,3061000,8000
 ```
+
+> **Note on Datasets**:
+> - `samples/sample_market_data_spot_BTCUSDT.csv` and `samples/sample_orderbook_spot_BTCUSDT.csv`: Verified 2-minute live capture session. Replaying this input produces the exact orderbook output bit-for-bit.
+> - `samples/golden_market_data_spot_BTCUSDT.csv`: Synthetic deterministic test fixture (300 messages with 100 ms stepped intervals), used for automated regression testing against [`samples/orderbook.sha256`](samples/orderbook.sha256).
 
 ---
 
@@ -215,23 +222,23 @@ Hardware: AMD Ryzen 5 5600H (6 cores / 12 threads @ 3.30 GHz), NVMe SSD, Windows
 ```text
 ================= BENCHMARK REPORT =================
 Venue:            spot
-Input CSV:        samples/golden_market_data_spot_BTCUSDT.csv
+Input CSV:        samples/sample_market_data_spot_BTCUSDT.csv
 Output Directory: replay_bench
-Messages Read:    8,470
-Rows Written:     7,278
+Messages Read:    4,676
+Rows Written:     4,674
 Parse Errors:     0
-Payload Size:     2.49 MB
-Elapsed Time:     0.045696 s
-Throughput:       185,355.39 msgs/sec
-Average Latency:  5,395.04 ns/msg
-p50 Latency:      1,000 ns (1.0 µs)
-p99 Latency:      10,000 ns (10.0 µs)
-Max Latency:      1,035,100 ns (1.03 ms)
+Payload Size:     1.49 MB
+Elapsed Time:     0.031482 s
+Throughput:       148,531.68 msgs/sec
+Average Latency:  6,732.57 ns/msg
+p50 Latency:      2,000 ns (2.0 µs)
+p99 Latency:      25,000 ns (25.0 µs)
+Max Latency:      680,200 ns (0.68 ms)
 ====================================================
 ```
 
-- **Replay Determinism**: Bit-for-bit verified against committed checksum [`samples/orderbook.sha256`](samples/orderbook.sha256) (`f7c8f6fcf018657f935be98c882e495d0050149c664c1cc58219d3700a4c4045`).
-- **SPSC Ring Stress Test**: **36,992,112 msgs/sec** throughput with zero lost messages or checksum errors across 10,000,000 consecutive items.
+- **Replay Determinism**: Bit-for-bit verified against committed checksum [`samples/orderbook.sha256`](samples/orderbook.sha256) (`abb333450d2ede3733566f50259d34bd83cfa08b585362091988068e85f76b68`).
+- **SPSC Ring Stress Test**: **35,315,996 msgs/sec** throughput with zero lost messages or checksum errors across 10,000,000 consecutive items.
 
 ---
 

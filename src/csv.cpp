@@ -114,21 +114,6 @@ std::string build_csv_filename(std::string_view output_dir,
     return path;
 }
 
-template <typename T>
-void append_int(std::string& out, T val) {
-    char buf[24];
-    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), val);
-    if (ec == std::errc()) {
-        out.append(buf, static_cast<size_t>(ptr - buf));
-    }
-}
-
-// Explicit template instantiations for commonly used integer types
-template void append_int<int32_t>(std::string&, int32_t);
-template void append_int<uint32_t>(std::string&, uint32_t);
-template void append_int<int64_t>(std::string&, int64_t);
-template void append_int<uint64_t>(std::string&, uint64_t);
-
 BufferedFile::BufferedFile(const std::string& path) {
     open(path);
 }

@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <chrono>
 #include <vector>
+#include <charconv>
+#include <system_error>
 
 namespace lob {
 
@@ -47,7 +49,13 @@ std::string build_csv_filename(std::string_view output_dir,
  * @brief Fast integer formatting appends directly into a std::string buffer.
  */
 template <typename T>
-void append_int(std::string& out, T val);
+inline void append_int(std::string& out, T val) {
+    char buf[24];
+    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), val);
+    if (ec == std::errc()) {
+        out.append(buf, static_cast<size_t>(ptr - buf));
+    }
+}
 
 /**
  * @brief RAII High-Performance Buffered File Writer
