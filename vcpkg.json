@@ -1,0 +1,11 @@
+{
+  "name": "binance-lob-capture",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "boost-asio",
+    "boost-beast",
+    "boost-system",
+    "openssl",
+    "simdjson"
+  ]
+}

@@ -1,0 +1,28 @@
+# Build directories
+build/
+bin/
+out/
+.vs/
+*.dir/
+
+# Output CSV files and logs
+*.csv
+output/
+logs/
+
+# Compiled binaries and libraries
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Environment and secrets
+.env
+config/secrets.json
+
+# vcpkg
+vcpkg_installed/
