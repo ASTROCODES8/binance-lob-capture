@@ -6,8 +6,7 @@
 
 namespace binance {
 
-// Fixed-point scaling factor: 1e8 (100,000,000) ticks per unit
-constexpr int64_t FIXED_POINT_SCALE = 100'000'000LL;
+// FIXED_POINT_SCALE is defined in fixed_point.hpp (canonical location)
 
 // Supported venues
 enum class Venue : uint8_t {

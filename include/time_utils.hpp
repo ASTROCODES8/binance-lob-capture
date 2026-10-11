@@ -62,7 +62,7 @@ inline bool format_utc_date_from_epoch(int64_t tsec, char* out_buf, size_t out_l
     days += 719468;
     const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
     const uint64_t doe = static_cast<uint64_t>(days - era * 146097);
-    const uint64_t yoe = (doe - doe / 1024 + doe / 1461 - doe / 146096) / 365;
+    const uint64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     const int64_t y = static_cast<int64_t>(yoe) + era * 400;
     const uint64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     const uint64_t mp = (5 * doy + 2) / 153;

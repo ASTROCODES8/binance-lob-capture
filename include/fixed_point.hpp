@@ -1,11 +1,13 @@
 #pragma once
 
-#include "types.hpp"
 #include <cstdint>
 #include <string_view>
 #include <algorithm>
 
 namespace binance {
+
+// Fixed-point scaling factor: 1e8 (100,000,000) ticks per unit
+constexpr int64_t FIXED_POINT_SCALE = 100'000'000LL;
 
 // Precomputed powers of 10 for scaling fractional parts up to 8 decimal places
 constexpr int64_t POWERS_OF_TEN_8[9] = {

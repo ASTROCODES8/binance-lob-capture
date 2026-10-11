@@ -93,20 +93,36 @@ void test_time_and_date_utils() {
     TEST_ASSERT(format_utc_date_from_epoch(0, date_buf, sizeof(date_buf)));
     TEST_ASSERT(std::strcmp(date_buf, "1970-01-01") == 0);
 
-    // 2025-01-15 12:00:00 UTC (1736942400)
-    TEST_ASSERT(format_utc_date_from_epoch(1736942400LL, date_buf, sizeof(date_buf)));
-    TEST_ASSERT(std::strcmp(date_buf, "2025-01-15") == 0);
+    // Y2K leap day: 2000-02-29 00:00:00 UTC
+    TEST_ASSERT(format_utc_date_from_epoch(951782400LL, date_buf, sizeof(date_buf)));
+    TEST_ASSERT(std::strcmp(date_buf, "2000-02-29") == 0);
 
-    // Leap year date: 2024-02-29 12:00:00 UTC (1709208000)
-    TEST_ASSERT(format_utc_date_from_epoch(1709208000LL, date_buf, sizeof(date_buf)));
+    // 2024-02-29 00:00:00 UTC
+    TEST_ASSERT(format_utc_date_from_epoch(1709164800LL, date_buf, sizeof(date_buf)));
     TEST_ASSERT(std::strcmp(date_buf, "2024-02-29") == 0);
 
+    // 2024-02-29 23:59:59 UTC (last second of leap day)
+    TEST_ASSERT(format_utc_date_from_epoch(1709251199LL, date_buf, sizeof(date_buf)));
+    TEST_ASSERT(std::strcmp(date_buf, "2024-02-29") == 0);
+
+    // 2024-03-01 00:00:00 UTC (one second after leap day ends)
+    TEST_ASSERT(format_utc_date_from_epoch(1709251200LL, date_buf, sizeof(date_buf)));
+    TEST_ASSERT(std::strcmp(date_buf, "2024-03-01") == 0);
+
+    // 2025-01-15 00:00:00 UTC
+    TEST_ASSERT(format_utc_date_from_epoch(1736899200LL, date_buf, sizeof(date_buf)));
+    TEST_ASSERT(std::strcmp(date_buf, "2025-01-15") == 0);
+
+    // 2100-03-01 00:00:00 UTC (2100 is NOT a leap year: divisible by 100 but not 400)
+    TEST_ASSERT(format_utc_date_from_epoch(4107542400LL, date_buf, sizeof(date_buf)));
+    TEST_ASSERT(std::strcmp(date_buf, "2100-03-01") == 0);
+
     // Split epoch ns
-    int64_t test_ns = 1736942400123456789LL;
+    int64_t test_ns = 1736899200123456789LL;
     int64_t tsec = 0;
     int32_t tnsec = 0;
     split_epoch_ns(test_ns, tsec, tnsec);
-    TEST_ASSERT(tsec == 1736942400LL);
+    TEST_ASSERT(tsec == 1736899200LL);
     TEST_ASSERT(tnsec == 123456789);
     TEST_ASSERT(tsec * 1'000'000'000LL + tnsec == test_ns);
 }
