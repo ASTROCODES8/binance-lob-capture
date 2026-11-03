@@ -54,8 +54,8 @@ The capture engine separates network socket I/O from order book calculation and 
   - Head and tail pointers are separated by `alignas(64)` cacheline padding to prevent false sharing across CPU cores.
   - Synchronization uses `std::memory_order_release` on writes and `std::memory_order_acquire` on reads.
   - Employs a cached opposite index technique: the producer maintains a local `cached_tail` and the consumer maintains a local `cached_head`, minimizing cross-core atomic synchronization when the buffer is neither full nor empty.
-  - Pre-allocated 64 KB slots (`RingSlot`) eliminate dynamic heap allocations (`new`/`malloc`) on the message forwarding path.
-  - Bounded capacity: 1,024 slots (64 MB buffer). If an overflow occurs, the producer drops the frame, records the drop metric, and asserts an invalidation flag so the consumer can safely purge and re-sync the order book.
+  - Pre-allocated 128 KB slots (`RingSlot`) eliminate dynamic heap allocations (`new`/`malloc`) on the message forwarding path.
+  - Bounded capacity: 2,048 slots (128 MB buffer). If an overflow occurs, the producer drops the frame, records the drop metric, and asserts an invalidation flag so the consumer can safely purge and re-sync the order book.
 - **Processor Thread**: The single consumer thread owns all order book state and file handles. Payload parsing is performed using a thread-local `simdjson::dom::parser` on pre-allocated buffers.
 - **Userspace Buffered File I/O**: File writes for both CSV streams are buffered in 1 MB memory blocks (`std::vector<char>`) flushed via `fwrite`, amortizing OS kernel `write` syscalls over tens of thousands of rows.
 - **Offline Deterministic Replay (`--replay`)**: Reads `market_data_*.csv` through an RFC 4180 parser and drives the exact same `Processor` pipeline. **The replay path executes strictly zero network calls, initializes zero sockets, and performs zero DNS lookups.**
