@@ -217,7 +217,7 @@ tsec,tnsec,seqNo,id,type,side,bid0,bid1,bid2,bid3,bid4,bid_size0,bid_size1,bid_s
 
 ## 7. Performance Benchmarks (`--bench`)
 
-Hardware: AMD Ryzen 5 5600H (6 cores / 12 threads @ 3.30 GHz), NVMe SSD, Windows 11 / Linux Ubuntu 22.04:
+Hardware: AMD Ryzen 5 7530U (6 cores / 12 threads @ 4.50 GHz), NVMe SSD, Windows 11 / Linux Ubuntu 22.04:
 
 ```text
 ================= BENCHMARK REPORT =================
